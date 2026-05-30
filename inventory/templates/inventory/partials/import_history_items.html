@@ -1,0 +1,37 @@
+{% if history %}
+<ul class="import-history-list">
+    {% for batch in history %}
+    <li class="import-history-item">
+        <div class="import-history-item-head">
+            <time class="import-history-time" datetime="{{ batch.created_at|date:'c' }}">
+                {{ batch.created_at|date:"M j, Y" }} · {{ batch.created_at|time:"g:i A" }}
+            </time>
+            {% if batch.status == 'completed' %}
+            <span class="badge badge-green">{{ batch.get_status_display }}</span>
+            {% elif batch.status == 'failed' %}
+            <span class="badge import-history-badge-failed">{{ batch.get_status_display }}</span>
+            {% elif batch.status == 'processing' %}
+            <span class="badge badge-amber">{{ batch.get_status_display }}</span>
+            {% else %}
+            <span class="badge" style="background: #f1f5f9; color: var(--text-muted); border: 1px solid #e2e8f0;">{{ batch.get_status_display }}</span>
+            {% endif %}
+        </div>
+        <p class="import-history-file" title="{{ batch.original_file_name }}">{{ batch.original_file_name }}</p>
+        {% if batch.history_stats %}
+        <ul class="import-history-stats">
+            {% for line in batch.history_stats %}
+            <li>{{ line }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if batch.status == 'failed' and batch.failure_reason %}
+        <p class="import-history-error">{{ batch.failure_reason|truncatechars:160 }}</p>
+        {% elif batch.completed_at and batch.status == 'completed' %}
+        <p class="import-history-finished">Finished {{ batch.completed_at|date:"M j, Y" }} · {{ batch.completed_at|time:"g:i A" }}</p>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="import-history-empty">No imports yet.</p>
+{% endif %}

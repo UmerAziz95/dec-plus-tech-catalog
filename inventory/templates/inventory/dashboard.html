@@ -1,0 +1,99 @@
+{% extends "app_base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block breadcrumb %}Home / Dashboard{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Stats Row -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon-box purple">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M5 17H3v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2m-4 0H9m-6-6h15m-6 0V6"/></svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Total Cars</div>
+                <div class="stat-value">{{ total_cars|default:"0" }}</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon-box blue">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Total Parts</div>
+                <div class="stat-value">{{ total_parts|default:"0" }}</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon-box green">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Total Groups</div>
+                <div class="stat-value">{{ total_groups|default:"0" }}</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon-box amber">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Basket Items</div>
+                <div class="stat-value">{{ basket_count|default:"0" }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Welcome Card -->
+    <div class="card" style="margin-bottom: var(--space-xl);">
+        <div class="card-header">
+            <div>
+                <h2 class="card-title">Welcome back, {{ request.user.get_display_name }}!</h2>
+                <p class="card-subtitle">Here's an overview of your car parts database.</p>
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-lg);">
+            <a href="{% url 'inventory:search_part' %}" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: var(--accent-light); margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Search Part Number</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Find cars by part number</div>
+            </a>
+            <a href="{% url 'inventory:cars_catalog' %}" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: var(--accent); margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M5 17h-2v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2"/><path d="M9 17h6"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Cars Catalog</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Browse and edit vehicle models</div>
+            </a>
+            <a href="{% url 'inventory:basket' %}" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: #fbbf24; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Basket</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Manage brand assignments</div>
+            </a>
+            <a href="{% url 'inventory:search_part' %}#bulk-search-panel" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: #34d399; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Search Book</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Bulk search via Excel</div>
+            </a>
+            <a href="{% url 'inventory:import_data' %}" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: #60a5fa; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Import Data</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Upload Cars, Groups and Parts</div>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

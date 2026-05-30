@@ -1,0 +1,7 @@
+# Python
+Django==6.0.5
+psycopg[binary]==3.3.4
+openpyxl==3.1.5
+pillow==12.2.0
+gunicorn==23.0.0
+whitenoise==6.9.0

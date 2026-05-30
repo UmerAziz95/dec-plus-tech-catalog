@@ -1,0 +1,835 @@
+{% extends "app_base.html" %}
+
+
+
+{% block title %}Import Data{% endblock %}
+
+{% block page_title %}Import Data{% endblock %}
+
+{% block breadcrumb %}Home / Import Data{% endblock %}
+
+
+
+{% block content %}
+
+<div class="fade-in" id="import-data-page" data-import-history-url="{{ import_history_url }}">
+
+    <div class="card" style="margin-bottom: var(--space-xl);">
+
+        <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
+
+            Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
+
+        </p>
+
+
+
+        <div class="import-type-grid">
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">1. Car models</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>CarId</strong> sheet only.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+
+                    {% csrf_token %}
+
+                    <input type="hidden" name="import_type" value="cars">
+
+                    <div class="search-bar" style="flex: 1;">
+
+                        <span class="search-icon">
+
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+
+                        </span>
+
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Start cars import</button>
+
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=cars_import_history import_history_type="cars" only %}
+                </div>
+            </section>
+
+
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">2. Groups and links</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>carId &amp; GroupId</strong> sheet only. Import cars first so links can be created.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+
+                    {% csrf_token %}
+
+                    <input type="hidden" name="import_type" value="groups">
+
+                    <div class="search-bar" style="flex: 1;">
+
+                        <span class="search-icon">
+
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+
+                        </span>
+
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Start groups import</button>
+
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=groups_import_history import_history_type="groups" only %}
+                </div>
+            </section>
+
+
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">3. Part numbers</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>groupId &amp; part_number</strong> sheet only. Groups are created from the file when missing.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+
+                    {% csrf_token %}
+
+                    <input type="hidden" name="import_type" value="parts">
+
+                    <div class="search-bar" style="flex: 1;">
+
+                        <span class="search-icon">
+
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+
+                        </span>
+
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Start parts import</button>
+
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=parts_import_history import_history_type="parts" only %}
+                </div>
+            </section>
+
+        </div>
+
+
+
+        {% if form.errors %}
+
+        <div class="form-errors feedback-stack" style="margin-top: var(--space-lg);">
+
+            {% for field_name, errors in form.errors.items %}
+
+                {% for error in errors %}
+
+                <div class="form-feedback toast toast-error" role="alert">
+
+                    <span class="toast-icon">&#10007;</span>
+
+                    <span class="toast-text">
+
+                        {% if field_name == 'excel_file' %}Excel file{% elif field_name == 'import_type' %}Import type{% else %}{{ field_name }}{% endif %}: {{ error }}
+
+                    </span>
+
+                </div>
+
+                {% endfor %}
+
+            {% endfor %}
+
+        </div>
+
+        {% endif %}
+
+    </div>
+
+
+
+    {% if active_batch %}
+
+    <div class="card" id="import-job-panel" data-status-url="{% url 'inventory:import_batch_status' active_batch.id %}" data-import-type="{{ active_batch.import_type }}">
+
+        <h3 class="card-title">Import job #{{ active_batch.id }} — {{ active_batch.get_import_type_display }}</h3>
+
+        <p style="margin-top: var(--space-xs); font-size: var(--font-sm); color: var(--text-muted);">{{ active_batch.original_file_name }}</p>
+
+        <p id="job-status-line" style="margin-top: var(--space-sm); font-size: var(--font-sm); color: var(--text-secondary);">
+
+            <strong>Status:</strong> <span id="job-status-value">{{ active_batch.get_status_display }}</span>
+
+            — <span id="job-progress">{{ active_batch.progress_note|default:"—" }}</span>
+
+        </p>
+
+        <div id="job-failure" class="feedback-stack" style="display: none; margin-top: var(--space-sm);"></div>
+
+        <div id="job-summary" style="display: none; margin-top: var(--space-lg);">
+
+            <div class="stats-grid" id="job-summary-grid">
+
+                <div class="stat-card" data-summary="cars"><div class="stat-content"><div class="stat-label">Cars (rows)</div><div class="stat-value" id="sum-cars">0</div></div></div>
+
+                <div class="stat-card" data-summary="groups"><div class="stat-content"><div class="stat-label">Groups</div><div class="stat-value" id="sum-groups">0</div></div></div>
+
+                <div class="stat-card" data-summary="links"><div class="stat-content"><div class="stat-label">Links</div><div class="stat-value" id="sum-links">0</div></div></div>
+
+                <div class="stat-card" data-summary="parts"><div class="stat-content"><div class="stat-label">Parts</div><div class="stat-value" id="sum-parts">0</div></div></div>
+
+                <div class="stat-card" data-summary="errors"><div class="stat-content"><div class="stat-label">Warnings</div><div class="stat-value" id="sum-errors">0</div></div></div>
+
+            </div>
+
+        </div>
+
+        <div id="job-errors-wrap" style="display: none; margin-top: var(--space-lg);">
+
+            <h4 style="font-size: var(--font-sm); margin-bottom: var(--space-sm);">Errors and warnings (sample)</h4>
+
+            <div class="table-wrapper">
+
+                <table class="data-table" id="job-errors-table">
+
+                    <thead><tr><th>Sheet</th><th>Row</th><th>Message</th></tr></thead>
+
+                    <tbody></tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}
+
+
+
+{% block extra_css %}
+
+<style>
+
+    .import-type-grid {
+
+        display: grid;
+
+        gap: var(--space-lg);
+
+    }
+
+    .import-type-card {
+
+        padding: var(--space-lg);
+
+        border: 1px solid var(--card-border);
+
+        border-radius: var(--radius-lg);
+
+        background: var(--surface-muted, #f8fafc);
+
+    }
+
+    .import-type-title {
+
+        font-size: var(--font-lg);
+
+        margin-bottom: var(--space-xs);
+
+        color: var(--text-primary);
+
+    }
+
+    .import-type-text {
+
+        font-size: var(--font-sm);
+
+        color: var(--text-muted);
+
+        margin-bottom: var(--space-md);
+
+        line-height: 1.5;
+
+    }
+
+    .import-type-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+        gap: var(--space-xl);
+        align-items: start;
+    }
+
+    .import-type-main {
+        min-width: 0;
+    }
+
+    .import-history-panel {
+        border-left: 1px solid var(--card-border);
+        padding-left: var(--space-lg);
+        min-height: 120px;
+    }
+
+    .import-history-title {
+        font-size: var(--font-sm);
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: var(--space-md);
+    }
+
+    .import-history-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-md);
+        max-height: 280px;
+        overflow-y: auto;
+    }
+
+    .import-history-item {
+        padding-bottom: var(--space-md);
+        border-bottom: 1px solid var(--card-border);
+    }
+
+    .import-history-item:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .import-history-item-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-sm);
+        margin-bottom: var(--space-xs);
+    }
+
+    .import-history-time {
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+        line-height: 1.4;
+    }
+
+    .import-history-file {
+        font-size: var(--font-sm);
+        color: var(--text-primary);
+        margin: 0 0 var(--space-xs);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .import-history-stats {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: var(--font-xs);
+        color: var(--text-secondary);
+        line-height: 1.5;
+    }
+
+    .import-history-stats li::before {
+        content: "•";
+        margin-right: 0.35em;
+        color: var(--accent-light);
+    }
+
+    .import-history-finished {
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+        margin: var(--space-xs) 0 0;
+    }
+
+    .import-history-error {
+        font-size: var(--font-xs);
+        color: #f43f5e;
+        margin: var(--space-xs) 0 0;
+        line-height: 1.4;
+    }
+
+    .import-history-empty {
+        font-size: var(--font-sm);
+        color: var(--text-muted);
+        margin: 0;
+    }
+
+    .import-history-badge-failed {
+        background: rgba(244, 63, 94, 0.1);
+        color: #f43f5e;
+        border: 1px solid rgba(244, 63, 94, 0.2);
+    }
+
+    @media (max-width: 900px) {
+        .import-type-layout {
+            grid-template-columns: 1fr;
+        }
+
+        .import-history-panel {
+            border-left: none;
+            border-top: 1px solid var(--card-border);
+            padding-left: 0;
+            padding-top: var(--space-lg);
+        }
+    }
+
+</style>
+
+{% endblock %}
+
+
+
+{% block extra_js %}
+
+<script>
+
+    (function () {
+
+        function validateImportFile(input, file) {
+
+            if (!file) {
+
+                return 'Please choose a file to upload.';
+
+            }
+
+            if (!file.name.toLowerCase().endsWith('.xlsx')) {
+
+                return 'Only .xlsx files are allowed.';
+
+            }
+
+            const maxUploadBytes = Number(input.dataset.maxUploadBytes || 0);
+
+            const maxUploadGb = input.dataset.maxUploadGb || '5';
+
+            if (maxUploadBytes > 0 && file.size > maxUploadBytes) {
+
+                return 'File size must not exceed ' + maxUploadGb + ' GB.';
+
+            }
+
+            return '';
+
+        }
+
+
+
+        document.querySelectorAll('[data-import-form]').forEach(function (form) {
+
+            const input = form.querySelector('.import-file-input');
+
+            const feedback = form.parentElement.querySelector('.import-form-feedback');
+
+            if (!input) return;
+
+
+
+            function clearImportFeedback() {
+
+                input.classList.remove('is-invalid');
+
+                window.clearAppFormFeedback(feedback);
+
+            }
+
+
+
+            function showImportFeedback(message) {
+
+                input.classList.add('is-invalid');
+
+                window.showAppFormFeedback(feedback, message, 'error');
+
+            }
+
+
+
+            input.addEventListener('change', function () {
+
+                const file = input.files[0];
+
+                if (!file) {
+
+                    clearImportFeedback();
+
+                    return;
+
+                }
+
+                const message = validateImportFile(input, file);
+
+                if (message) {
+
+                    showImportFeedback(message);
+
+                    return;
+
+                }
+
+                clearImportFeedback();
+
+            });
+
+
+
+            form.addEventListener('submit', function (event) {
+
+                const file = input.files[0];
+
+                const message = validateImportFile(input, file);
+
+                if (message) {
+
+                    event.preventDefault();
+
+                    showImportFeedback(message);
+
+                }
+
+            });
+
+        });
+
+    })();
+
+
+
+    (function () {
+
+        const page = document.getElementById('import-data-page');
+
+        const historyUrl = page && page.dataset.importHistoryUrl;
+
+        if (!historyUrl) return;
+
+
+
+        function applyHistoryPayload(payload) {
+
+            const html = payload.html || {};
+
+            const pollActive = payload.poll_active || {};
+
+            ['cars', 'groups', 'parts'].forEach(function (type) {
+
+                const panel = document.querySelector('[data-import-history-panel="' + type + '"]');
+
+                if (!panel) return;
+
+                const body = panel.querySelector('[data-import-history-body]');
+
+                if (body && html[type] !== undefined) {
+
+                    body.innerHTML = html[type];
+
+                }
+
+                panel.dataset.importHistoryPoll = pollActive[type] ? '1' : '0';
+
+            });
+
+        }
+
+
+
+        function refreshImportHistory() {
+
+            return fetch(historyUrl, { headers: { 'Accept': 'application/json' } })
+
+                .then(function (r) { return r.json(); })
+
+                .then(applyHistoryPayload);
+
+        }
+
+
+
+        window.refreshImportHistory = refreshImportHistory;
+
+
+
+        function historyShouldPoll() {
+
+            if (document.querySelector('[data-import-history-poll="1"]')) {
+
+                return true;
+
+            }
+
+            const panel = document.getElementById('import-job-panel');
+
+            if (!panel) return false;
+
+            const statusEl = document.getElementById('job-status-value');
+
+            if (!statusEl) return false;
+
+            const label = statusEl.textContent.trim();
+
+            return label === 'Processing' || label === 'Pending';
+
+        }
+
+
+
+        let historyPollTimer = null;
+
+
+
+        function scheduleHistoryPoll(delay) {
+
+            if (historyPollTimer) clearTimeout(historyPollTimer);
+
+            if (!historyShouldPoll()) return;
+
+            historyPollTimer = setTimeout(function () {
+
+                refreshImportHistory()
+
+                    .catch(function () {})
+
+                    .finally(function () {
+
+                        if (historyShouldPoll()) {
+
+                            scheduleHistoryPoll(2000);
+
+                        }
+
+                    });
+
+            }, delay);
+
+        }
+
+
+
+        if (historyShouldPoll()) {
+
+            refreshImportHistory().catch(function () {}).finally(function () {
+
+                scheduleHistoryPoll(2000);
+
+            });
+
+        }
+
+    })();
+
+
+
+    (function () {
+
+        const panel = document.getElementById('import-job-panel');
+
+        if (!panel) return;
+
+        const url = panel.dataset.statusUrl;
+
+        const importType = panel.dataset.importType || 'cars';
+
+        const statusEl = document.getElementById('job-status-value');
+
+        const progressEl = document.getElementById('job-progress');
+
+        const failureEl = document.getElementById('job-failure');
+
+        const summaryEl = document.getElementById('job-summary');
+
+        const errorsWrap = document.getElementById('job-errors-wrap');
+
+        const errorsBody = document.querySelector('#job-errors-table tbody');
+
+
+
+        function setSummaryVisibility(type) {
+
+            document.querySelectorAll('[data-summary]').forEach(function (card) {
+
+                const key = card.getAttribute('data-summary');
+
+                const visible = key === 'errors'
+
+                    ? true
+
+                    : (type === 'cars' && key === 'cars')
+
+                    || (type === 'groups' && (key === 'groups' || key === 'links'))
+
+                    || (type === 'parts' && (key === 'groups' || key === 'parts'));
+
+                card.style.display = visible ? '' : 'none';
+
+            });
+
+        }
+
+
+
+        function render(data, errors) {
+
+            const d = data || {};
+
+            const labels = { pending: 'Pending', processing: 'Processing', completed: 'Completed', failed: 'Failed' };
+
+            const type = d.import_type || importType;
+
+            statusEl.textContent = labels[d.job_status] || d.job_status || '—';
+
+            progressEl.textContent = d.progress_note || '—';
+
+            setSummaryVisibility(type);
+
+
+
+            if (d.job_status === 'failed' && d.failure_reason) {
+
+                failureEl.style.display = 'block';
+
+                window.showAppFormFeedback(failureEl, d.failure_reason, 'error');
+
+            } else if (d.job_status === 'completed' && d.failure_reason) {
+
+                failureEl.style.display = 'block';
+
+                window.showAppFormFeedback(failureEl, d.failure_reason, 'warning');
+
+            } else {
+
+                failureEl.style.display = 'none';
+
+                window.clearAppFormFeedback(failureEl);
+
+            }
+
+
+
+            if (d.job_status === 'completed') {
+
+                summaryEl.style.display = 'block';
+
+                document.getElementById('sum-cars').textContent = d.cars_count ?? 0;
+
+                document.getElementById('sum-groups').textContent = d.groups_count ?? 0;
+
+                document.getElementById('sum-links').textContent = d.links_count ?? 0;
+
+                document.getElementById('sum-parts').textContent = d.parts_count ?? 0;
+
+                document.getElementById('sum-errors').textContent = d.error_count ?? 0;
+
+            }
+
+
+
+            if (errors && errors.length) {
+
+                errorsWrap.style.display = 'block';
+
+                errorsBody.innerHTML = errors.map(function (e) {
+
+                    return '<tr><td>' + (e.sheet_name || '') + '</td><td>' + (e.row_number || '') + '</td><td>' + (e.message || '').replace(/</g, '&lt;') + '</td></tr>';
+
+                }).join('');
+
+            } else {
+
+                errorsWrap.style.display = 'none';
+
+                errorsBody.innerHTML = '';
+
+            }
+
+        }
+
+
+
+        let statusWarningShown = false;
+
+
+
+        function poll() {
+
+            fetch(url, { headers: { 'Accept': 'application/json' } })
+
+                .then(function (r) { return r.json(); })
+
+                .then(function (payload) {
+
+                    statusWarningShown = false;
+
+                    render(payload.data, payload.errors);
+
+                    if (window.refreshImportHistory) {
+
+                        window.refreshImportHistory().catch(function () {});
+
+                    }
+
+                    const st = payload.data && payload.data.job_status;
+
+                    if (st === 'processing' || st === 'pending') {
+
+                        setTimeout(poll, 2000);
+
+                    }
+
+                })
+
+                .catch(function () {
+
+                    if (!statusWarningShown) {
+
+                        statusWarningShown = true;
+
+                        window.showAppToast('Could not refresh import status. Retrying shortly.', 'warning');
+
+                    }
+
+                    setTimeout(poll, 5000);
+
+                });
+
+        }
+
+        poll();
+
+    })();
+
+</script>
+
+{% endblock %}
+
+

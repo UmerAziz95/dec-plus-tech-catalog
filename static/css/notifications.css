@@ -1,0 +1,165 @@
+.app-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-lg, 1.5rem);
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: appConfirmFadeIn 0.2s ease;
+}
+
+.app-confirm-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card-bg, #ffffff);
+    border: 1px solid var(--card-border, #e2e8f0);
+    border-radius: var(--radius-xl, 1rem);
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+    animation: appConfirmSlideUp 0.25s ease;
+}
+
+.app-confirm-header {
+    padding: var(--space-lg, 1.5rem) var(--space-xl, 2rem) 0;
+}
+
+.app-confirm-title {
+    margin: 0;
+    font-size: var(--font-lg, 1.125rem);
+    font-weight: 600;
+    color: var(--text-primary, #0f172a);
+}
+
+.app-confirm-message {
+    margin: 0;
+    padding: var(--space-md, 1rem) var(--space-xl, 2rem) var(--space-lg, 1.5rem);
+    font-size: var(--font-sm, 0.875rem);
+    line-height: 1.5;
+    color: var(--text-secondary, #475569);
+}
+
+.app-confirm-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-md, 1rem);
+    padding: 0 var(--space-xl, 2rem) var(--space-xl, 2rem);
+}
+
+@keyframes appConfirmFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes appConfirmSlideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.auth-container .messages-wrapper {
+    position: fixed;
+    top: var(--space-lg, 1.5rem);
+    right: var(--space-lg, 1.5rem);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm, 0.5rem);
+    max-width: 420px;
+    width: calc(100% - 2 * var(--space-lg, 1.5rem));
+}
+
+.auth-container .messages-wrapper .toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm, 0.5rem);
+    padding: var(--space-md, 1rem) var(--space-lg, 1.5rem);
+    border-radius: var(--radius-md, 0.75rem);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color, #e2e8f0);
+    font-size: var(--font-sm, 0.875rem);
+    line-height: 1.45;
+    animation: alertSlideIn 0.4s ease-out;
+}
+
+.auth-container .messages-wrapper .toast-success {
+    background: var(--success-bg, rgba(16, 185, 129, 0.1));
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--success-color, #10b981);
+}
+
+.auth-container .messages-wrapper .toast-error {
+    background: var(--error-bg, rgba(244, 63, 94, 0.1));
+    border-color: rgba(244, 63, 94, 0.3);
+    color: var(--error-color, #f43f5e);
+}
+
+.auth-container .messages-wrapper .toast-info {
+    background: var(--info-bg, rgba(59, 130, 246, 0.1));
+    border-color: rgba(59, 130, 246, 0.3);
+    color: var(--info-color, #3b82f6);
+}
+
+.auth-container .messages-wrapper .toast-warning {
+    background: var(--warning-bg, rgba(245, 158, 11, 0.1));
+    border-color: rgba(245, 158, 11, 0.3);
+    color: var(--warning-color, #f59e0b);
+}
+
+.auth-container .messages-wrapper .toast-icon {
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.auth-container .messages-wrapper .toast-text {
+    flex: 1;
+}
+
+.auth-container .messages-wrapper .toast-close {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1.25rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+    flex-shrink: 0;
+}
+
+.auth-container .messages-wrapper .toast-close:hover {
+    opacity: 1;
+}
+
+.app-confirm-footer .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.55rem 1.5rem;
+    border-radius: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.app-confirm-footer .btn-primary {
+    background: linear-gradient(135deg, #141414, #e4002b 55%, #b8001f);
+    color: #fff;
+}
+
+.app-confirm-footer .btn-secondary {
+    background: #ffffff;
+    color: var(--text-secondary, #475569);
+    border: 1px solid var(--card-border, #e2e8f0);
+}
+
+.app-confirm-footer .btn-danger {
+    background: var(--error-bg, rgba(244, 63, 94, 0.1));
+    color: var(--error, #f43f5e);
+    border: 1px solid rgba(244, 63, 94, 0.2);
+}

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+*.egg-info/
+
+# Django
+db.sqlite3
+staticfiles/
+media/
+tmp_imports/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large — import via management command)
+*.xlsx
+*.csv
+
+# Gemini AI
+.gemini/

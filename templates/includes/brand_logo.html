@@ -1,0 +1,9 @@
+{% load static %}
+<img
+    src="{% static src %}?v=20260530"
+    alt="DEC PLUS TECH catalog"
+    class="{{ class }}"
+    {% if width %}width="{{ width }}"{% endif %}
+    loading="eager"
+    decoding="async"
+>

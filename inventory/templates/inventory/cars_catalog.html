@@ -1,0 +1,551 @@
+{% extends "app_base.html" %}
+
+{% block title %}Cars Catalog{% endblock %}
+{% block page_title %}Cars Catalog{% endblock %}
+{% block breadcrumb %}Home / Cars Catalog{% endblock %}
+
+{% block content %}
+<div class="fade-in catalog-page">
+    <div class="catalog-layout">
+        <aside class="catalog-brands card">
+            <div class="catalog-brands-header">
+                <h2 class="panel-title">Brands</h2>
+                <p class="catalog-brands-note">Pick a brand to list every vehicle for that brand.</p>
+            </div>
+            <div class="catalog-brand-search">
+                <input type="text" id="brand-filter-input" class="form-input" placeholder="Filter brands..." autocomplete="off">
+            </div>
+            <div class="catalog-brand-list" id="catalog-brand-list">
+                {% for brand in brands %}
+                <button
+                    type="button"
+                    class="catalog-brand-btn{% if filters.brand == brand %} is-active{% endif %}"
+                    data-brand="{{ brand }}"
+                >{{ brand }}</button>
+                {% empty %}
+                <p class="catalog-empty-note">No brands found in the catalog yet.</p>
+                {% endfor %}
+            </div>
+        </aside>
+
+        <section class="catalog-main">
+            <div class="card catalog-search-card">
+                <form method="get" action="" class="catalog-vehicle-search-form" id="catalog-vehicle-search-form">
+                    {% if filters.brand %}
+                    <input type="hidden" name="brand" value="{{ filters.brand }}">
+                    {% endif %}
+                    <div class="catalog-vehicle-search-row">
+                        <div class="search-bar catalog-vehicle-search-bar">
+                            <span class="search-icon">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            </span>
+                            <input
+                                type="text"
+                                name="q"
+                                id="catalog-vehicle-search-input"
+                                class="form-input"
+                                placeholder="Search car ID, model, engine, transmission, drive, parameters..."
+                                value="{{ filters.q }}"
+                                autocomplete="off"
+                            >
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <span>Search</span>
+                        </button>
+                        {% if filters.q %}
+                        <a href="{% if filters.brand %}{% url 'inventory:cars_catalog' %}?brand={{ filters.brand|urlencode }}{% else %}{% url 'inventory:cars_catalog' %}{% endif %}" class="btn btn-secondary btn-lg">Clear</a>
+                        {% elif filters.brand and searched %}
+                        <a href="{% url 'inventory:cars_catalog' %}?brand={{ filters.brand|urlencode }}" class="btn btn-secondary btn-lg">Show all</a>
+                        {% endif %}
+                    </div>
+                    {% if filters.brand and not filters.q %}
+                    <p class="catalog-search-hint">Searching within <strong>{{ filters.brand }}</strong>. Leave empty and click Search to list every vehicle for this brand.</p>
+                    {% elif not filters.brand %}
+                    <p class="catalog-search-hint">Pick a brand on the left, or search across the full catalog.</p>
+                    {% endif %}
+                </form>
+            </div>
+
+            <div class="catalog-results">
+                {% if searched %}
+                    {% if has_results %}
+                    <div class="results-summary">
+                        <div class="results-info">
+                            <span class="results-count">{{ total_cars }}</span> vehicle{{ total_cars|pluralize }} found
+                            {% if filters.brand %}
+                            <span class="results-divider">|</span>
+                            Brand: <strong>{{ filters.brand }}</strong>
+                            {% endif %}
+                            {% if filters.q %}
+                            <span class="results-divider">|</span>
+                            Search: <strong>{{ filters.q }}</strong>
+                            {% endif %}
+                        </div>
+                        <div class="results-summary-actions">
+                            <a href="{% url 'inventory:cars_catalog_export' %}?{{ search_query_string }}" class="btn btn-secondary btn-lg">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                <span>Export all results</span>
+                            </a>
+                            <div class="results-page-info">
+                                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card panel-card">
+                        <div class="table-wrapper">
+                            <table class="data-table" id="catalog-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Car ID</th>
+                                        <th>Car model</th>
+                                        <th>Steering</th>
+                                        <th>Trans.</th>
+                                        <th>Drive</th>
+                                        <th>Engine</th>
+                                        <th>Parameters</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for car in page_obj %}
+                                    <tr class="catalog-row" id="catalog-row-{{ car.pk }}">
+                                        <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                                        <td><span class="car-id-text">{{ car.car_id }}</span></td>
+                                        <td class="car-model-cell">
+                                            <div class="car-model-text">{{ car.car_model|default:"—"|truncatechars:80 }}</div>
+                                        </td>
+                                        <td>{{ car.steering|default:"—" }}</td>
+                                        <td>{{ car.transmission|default:"—" }}</td>
+                                        <td>{{ car.wd|default:"—" }}</td>
+                                        <td class="engine-text">{{ car.engine|default:"—"|truncatechars:40 }}</td>
+                                        <td class="params-text">{{ car.car_parameters|default:"—"|truncatechars:40 }}</td>
+                                        <td class="actions-cell">
+                                            <button type="button" class="btn btn-sm btn-edit catalog-edit-btn catalog-edit-btn-labeled" data-target="catalog-detail-{{ car.pk }}" title="Edit this vehicle">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                <span>Edit</span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="catalog-detail-row" id="catalog-detail-{{ car.pk }}" hidden>
+                                        <td colspan="9">
+                                            <form method="post" action="{% url 'inventory:cars_catalog_update' car.pk %}" class="catalog-edit-form">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="next" value="?{{ search_query_string }}&page={{ page_obj.number }}">
+                                                <div class="catalog-edit-grid">
+                                                    <div class="form-group">
+                                                        <label class="form-label">Car ID</label>
+                                                        <input type="text" class="form-input" value="{{ car.car_id }}" readonly>
+                                                    </div>
+                                                    <div class="form-group catalog-edit-wide">
+                                                        <label class="form-label" for="car-model-{{ car.pk }}">Car model <span class="required-mark">*</span></label>
+                                                        <input type="text" name="car_model" id="car-model-{{ car.pk }}" class="form-input" value="{{ car.car_model }}" required maxlength="500">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label" for="car-steering-{{ car.pk }}">Steering</label>
+                                                        <input type="text" name="steering" id="car-steering-{{ car.pk }}" class="form-input" value="{{ car.steering }}" maxlength="50">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label" for="car-transmission-{{ car.pk }}">Transmission</label>
+                                                        <input type="text" name="transmission" id="car-transmission-{{ car.pk }}" class="form-input" value="{{ car.transmission }}" maxlength="50">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label" for="car-wd-{{ car.pk }}">Drive</label>
+                                                        <input type="text" name="wd" id="car-wd-{{ car.pk }}" class="form-input" value="{{ car.wd }}" maxlength="50">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="form-label" for="car-engine-{{ car.pk }}">Engine</label>
+                                                        <input type="text" name="engine" id="car-engine-{{ car.pk }}" class="form-input" value="{{ car.engine }}" maxlength="255">
+                                                    </div>
+                                                    <div class="form-group catalog-edit-wide">
+                                                        <label class="form-label" for="car-parameters-{{ car.pk }}">Parameters</label>
+                                                        <input type="text" name="car_parameters" id="car-parameters-{{ car.pk }}" class="form-input" value="{{ car.car_parameters }}" maxlength="2000">
+                                                    </div>
+                                                    <div class="form-group catalog-edit-wide">
+                                                        <label class="form-label" for="car-note-{{ car.pk }}">Additional note</label>
+                                                        <textarea name="additional_note" id="car-note-{{ car.pk }}" class="form-input" rows="2" maxlength="2000">{{ car.additional_note }}</textarea>
+                                                    </div>
+                                                </div>
+                                                <div class="catalog-edit-actions">
+                                                    <button type="submit" class="btn btn-primary">Save changes</button>
+                                                    <button type="button" class="btn btn-secondary catalog-cancel-btn" data-target="catalog-detail-{{ car.pk }}">Cancel</button>
+                                                </div>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {% if page_obj.has_other_pages %}
+                    <div class="pagination-wrapper">
+                        <div class="pagination">
+                            {% if page_obj.has_previous %}
+                            <a href="?{{ search_query_string }}&page=1" class="page-link" title="First">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                            </a>
+                            <a href="?{{ search_query_string }}&page={{ page_obj.previous_page_number }}" class="page-link">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                                Prev
+                            </a>
+                            {% endif %}
+                            {% for num in page_obj.paginator.page_range %}
+                                {% if page_obj.number == num %}
+                                <span class="page-link active">{{ num }}</span>
+                                {% elif num > page_obj.number|add:"-4" and num < page_obj.number|add:"4" %}
+                                <a href="?{{ search_query_string }}&page={{ num }}" class="page-link">{{ num }}</a>
+                                {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                                <a href="?{{ search_query_string }}&page={{ num }}" class="page-link">{{ num }}</a>
+                                {% endif %}
+                            {% endfor %}
+                            {% if page_obj.has_next %}
+                            <a href="?{{ search_query_string }}&page={{ page_obj.next_page_number }}" class="page-link">
+                                Next
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                            </a>
+                            <a href="?{{ search_query_string }}&page={{ page_obj.paginator.num_pages }}" class="page-link" title="Last">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <div class="card catalog-empty-state">
+                        {% if filters.q %}
+                        <p>No vehicles match "<strong>{{ filters.q }}</strong>"{% if filters.brand %} for {{ filters.brand }}{% endif %}.</p>
+                        {% else %}
+                        <p>No vehicles found for this brand.</p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                {% else %}
+                <div class="card catalog-empty-state">
+                    <p>Select a brand on the left, or enter a search term above and click <strong>Search</strong>.</p>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .catalog-layout {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        gap: var(--space-xl);
+        align-items: start;
+    }
+
+    .catalog-brands {
+        position: sticky;
+        top: var(--space-lg);
+        max-height: calc(100vh - 140px);
+        display: flex;
+        flex-direction: column;
+        padding: var(--space-lg);
+    }
+
+    .catalog-brands-header .panel-title {
+        margin: 0 0 var(--space-xs);
+        font-size: var(--font-md);
+        font-weight: 600;
+    }
+
+    .catalog-brands-note,
+    .catalog-empty-note {
+        margin: 0;
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+    }
+
+    .catalog-brand-search {
+        margin: var(--space-md) 0;
+    }
+
+    .catalog-brand-list {
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-height: 120px;
+    }
+
+    .catalog-brand-btn {
+        text-align: left;
+        border: 1px solid transparent;
+        background: var(--surface-muted, #f8fafc);
+        color: var(--text-secondary);
+        border-radius: var(--radius-md);
+        padding: 0.45rem 0.65rem;
+        font-size: var(--font-sm);
+        cursor: pointer;
+        transition: all var(--t-fast);
+    }
+
+    .catalog-brand-btn:hover,
+    .catalog-brand-btn.is-active {
+        color: var(--text-primary);
+        background: var(--accent-dim);
+        border-color: rgba(228, 0, 43, 0.25);
+    }
+
+    .catalog-search-card {
+        margin-bottom: var(--space-md);
+        padding: var(--space-lg);
+    }
+
+    .catalog-vehicle-search-row {
+        display: flex;
+        align-items: end;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .catalog-vehicle-search-bar {
+        flex: 1 1 280px;
+        min-width: 0;
+    }
+
+    .catalog-search-hint {
+        margin: var(--space-md) 0 0;
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+        line-height: 1.45;
+    }
+
+    .catalog-search-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-md);
+    }
+
+    .catalog-model-group {
+        grid-column: 1 / -1;
+    }
+
+    .catalog-search-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+        margin-top: var(--space-lg);
+    }
+
+    .catalog-autocomplete {
+        position: relative;
+    }
+
+    .catalog-suggestions {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 20;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+        max-height: 240px;
+        overflow: auto;
+    }
+
+    .catalog-suggestion-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        padding: 0.55rem 0.75rem;
+        font-size: var(--font-sm);
+        cursor: pointer;
+    }
+
+    .catalog-suggestion-item:hover,
+    .catalog-suggestion-item.is-active {
+        background: var(--accent-dim);
+        border-color: rgba(228, 0, 43, 0.12);
+        color: var(--text-primary);
+    }
+
+    .panel-card { padding: 0; overflow: hidden; }
+
+    .results-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-md);
+        padding: 0 var(--space-xs);
+        flex-wrap: wrap;
+        gap: var(--space-md);
+    }
+
+    .results-summary-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .results-info { font-size: var(--font-sm); color: var(--text-secondary); }
+    .results-count { font-weight: 700; color: var(--accent-light); font-size: var(--font-lg); }
+    .results-divider { margin: 0 var(--space-sm); color: var(--text-dim); }
+    .results-page-info { font-size: var(--font-xs); color: var(--text-muted); }
+
+    .car-model-cell { max-width: 360px; }
+    .car-model-text { font-weight: 500; color: var(--text-primary); font-size: var(--font-sm); }
+    .car-id-text { font-size: var(--font-xs); color: var(--text-dim); font-family: 'SF Mono', 'Fira Code', monospace; }
+    .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
+    .engine-text, .params-text { font-size: var(--font-xs); color: var(--text-muted); }
+    .actions-cell { display: flex; gap: 4px; }
+
+    .btn-edit {
+        background: rgba(59, 130, 246, 0.1);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .btn-edit:hover {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: rgba(59, 130, 246, 0.4);
+    }
+
+    .catalog-detail-row td {
+        background: var(--surface-muted, #f8fafc);
+        padding: var(--space-lg);
+    }
+
+    .catalog-edit-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-md);
+    }
+
+    .catalog-edit-wide {
+        grid-column: 1 / -1;
+    }
+
+    .catalog-edit-actions {
+        display: flex;
+        gap: var(--space-md);
+        margin-top: var(--space-md);
+    }
+
+    .catalog-empty-state {
+        padding: var(--space-xl);
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .catalog-edit-btn-labeled {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
+    .pagination { display: flex; align-items: center; gap: 4px; }
+    .page-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.4rem 0.75rem;
+        border-radius: var(--radius-md);
+        font-size: var(--font-sm);
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        transition: all var(--t-fast);
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .page-link:hover {
+        background: var(--card-bg-hover);
+        color: var(--text-primary);
+        border-color: #cbd5e1;
+    }
+
+    .page-link.active {
+        background: var(--accent-dim);
+        color: var(--accent);
+        border-color: rgba(228, 0, 43, 0.3);
+        cursor: default;
+    }
+
+    @media (max-width: 1100px) {
+        .catalog-layout { grid-template-columns: 1fr; }
+        .catalog-brands {
+            position: static;
+            max-height: none;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .catalog-vehicle-search-row { flex-direction: column; align-items: stretch; }
+        .catalog-vehicle-search-bar { width: 100%; }
+        .catalog-search-grid,
+        .catalog-edit-grid { grid-template-columns: 1fr; }
+        .results-summary { flex-direction: column; gap: var(--space-sm); align-items: flex-start; }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const brandButtons = document.querySelectorAll('.catalog-brand-btn');
+    const brandFilterInput = document.getElementById('brand-filter-input');
+
+    function selectBrandAndLoad(brand) {
+        if (!brand) {
+            return;
+        }
+        const params = new URLSearchParams(window.location.search);
+        params.set('brand', brand);
+        params.delete('page');
+        params.delete('q');
+        window.location.search = params.toString();
+    }
+
+    brandButtons.forEach((button) => {
+        button.addEventListener('click', () => selectBrandAndLoad(button.dataset.brand || ''));
+    });
+
+    if (brandFilterInput) {
+        brandFilterInput.addEventListener('input', () => {
+            const query = brandFilterInput.value.trim().toLowerCase();
+            brandButtons.forEach((button) => {
+                const label = (button.dataset.brand || '').toLowerCase();
+                button.hidden = query && !label.includes(query);
+            });
+        });
+    }
+
+    document.querySelectorAll('.catalog-edit-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            const targetId = button.dataset.target;
+            const row = document.getElementById(targetId);
+            if (row) {
+                row.hidden = !row.hidden;
+            }
+        });
+    });
+
+    document.querySelectorAll('.catalog-cancel-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            const targetId = button.dataset.target;
+            const row = document.getElementById(targetId);
+            if (row) {
+                row.hidden = true;
+            }
+        });
+    });
+</script>
+{% endblock %}

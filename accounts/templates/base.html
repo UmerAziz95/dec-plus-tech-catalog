@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block meta_description %}Secure authentication portal{% endblock %}">
+    <title>{% block title %}Auth{% endblock %} — Portal</title>
+    {% include "includes/favicon.html" %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'accounts/css/auth.css' %}">
+    <link rel="stylesheet" href="{% static 'css/notifications.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="bg-orbs" aria-hidden="true">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <main class="auth-container">
+        <div class="messages-wrapper" id="app-toast-stack" aria-live="polite" aria-atomic="false">
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert">
+                <span class="alert-icon">
+                    {% if message.tags == 'success' %}✓{% elif message.tags == 'error' %}✕{% elif message.tags == 'info' %}ℹ{% else %}⚠{% endif %}
+                </span>
+                <span class="alert-text">{{ message }}</span>
+                <button type="button" class="alert-close" aria-label="Close">&times;</button>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{% static 'js/notifications.js' %}"></script>
+    <script src="{% static 'accounts/js/auth.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

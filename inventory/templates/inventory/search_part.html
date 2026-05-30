@@ -1,0 +1,608 @@
+{% extends "app_base.html" %}
+
+{% block title %}Search Part Number{% endblock %}
+{% block page_title %}Search Part Number{% endblock %}
+{% block breadcrumb %}Home / Search Part Number{% endblock %}
+
+{% block content %}
+<div class="fade-in search-page">
+    <div class="search-tools-grid">
+        <section class="search-tools-block" id="part-search-panel">
+            <h2 class="panel-title">Search by part number</h2>
+            <div class="card search-card">
+                <form method="get" action="" id="search-form" class="search-form-row">
+                    <div class="search-bar" style="flex: 1;">
+                        <span class="search-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        </span>
+                        <input
+                            type="text"
+                            name="q"
+                            class="form-input"
+                            placeholder="Enter part number (e.g., MQ900871)..."
+                            value="{{ query }}"
+                            autocomplete="off"
+                            autofocus
+                            id="search-input"
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="search-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <span>Search</span>
+                    </button>
+                    {% if query or bulk_has_searched %}
+                    <a href="{% url 'inventory:search_part' %}" class="btn btn-secondary btn-lg" id="clear-btn" title="Clear all results">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                        <span>Clear</span>
+                    </a>
+                    {% endif %}
+                </form>
+            </div>
+        </section>
+
+        <section class="search-tools-block" id="bulk-search-panel">
+            <h2 class="panel-title">Bulk search</h2>
+            <div class="card search-card">
+                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
+                    {% csrf_token %}
+                    <div class="search-bar" style="flex: 1;">
+                        <span class="search-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+                        </span>
+                        <input
+                            type="file"
+                            name="excel_file"
+                            class="form-input"
+                            accept=".xlsx"
+                            required
+                            id="excel-input"
+                            style="padding-top: 10px;"
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="upload-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span>Upload &amp; Save to basket</span>
+                    </button>
+                </form>
+            </div>
+        </section>
+    </div>
+
+    <section class="search-results-panel" id="search-results-panel">
+        {% if bulk_has_searched and not searched %}
+            {% if bulk_results %}
+            <div class="results-summary">
+                <div class="results-info">
+                    <span class="results-count">{{ bulk_result_count }}</span> row{{ bulk_result_count|pluralize }} processed
+                    <span class="results-divider">|</span>
+                    Bulk search results
+                </div>
+                {% if bulk_missed_count %}
+                <div class="results-summary-actions">
+                    <a href="{% url 'inventory:bulk_search_missed_export' %}" class="btn btn-secondary btn-lg">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <span>Export missed to Excel ({{ bulk_missed_count }})</span>
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="card panel-card">
+                <div class="table-wrapper">
+                    <table class="data-table" id="search-results-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Cross Brand</th>
+                                <th>Cross Code</th>
+                                <th>Part Number</th>
+                                <th>Match Status</th>
+                                <th>Vehicles Matched</th>
+                                <th>Basket Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in bulk_results %}
+                            <tr class="result-row">
+                                <td class="row-number">{{ forloop.counter }}</td>
+                                <td>
+                                    <span class="brand-name">{{ item.brand|default:"—" }}</span>
+                                </td>
+                                <td>
+                                    <span class="brand-number-text">{{ item.brand_number|default:"—" }}</span>
+                                </td>
+                                <td>
+                                    <span class="part-tag">{{ item.part_number }}</span>
+                                </td>
+                                <td>
+                                    {% if item.status == 'Found' %}
+                                    <span class="badge badge-blue">Found in DB</span>
+                                    {% else %}
+                                    <span class="badge badge-red">Not Found</span>
+                                    {% endif %}
+                                </td>
+                                <td class="car-model-cell">
+                                    {% if item.car_count > 0 %}
+                                        <div style="font-weight: 600; margin-bottom: 4px;">{{ item.car_count }} vehicle{{ item.car_count|pluralize }}</div>
+                                        <div class="car-id-text">
+                                        {% for car in item.top_cars %}
+                                            {{ car|truncatechars:30 }}<br>
+                                        {% endfor %}
+                                        {% if item.car_count > 3 %}
+                                            ...and {{ item.car_count|add:"-3" }} more
+                                        {% endif %}
+                                        </div>
+                                    {% else %}
+                                        <span style="color: var(--text-dim);">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.in_basket %}
+                                    <span class="badge badge-purple">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; display: inline-block; vertical-align: middle;"><path d="M20 6L9 17l-5-5"/></svg>
+                                        Saved
+                                    </span>
+                                    {% else %}
+                                    <span class="badge" style="background: #f1f5f9; color: var(--text-muted); border: 1px solid #e2e8f0;">Not Saved</span>
+                                    {% endif %}
+                                </td>
+                                <td class="actions-cell">
+                                    <a href="{% url 'inventory:search_part' %}?q={{ item.part_number|urlencode }}#search-results-panel" class="btn btn-sm btn-edit" title="Search Part">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                                        View Cars
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% else %}
+            <div class="card panel-card">
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/></svg>
+                    </div>
+                    <h3 class="empty-state-title">No rows processed</h3>
+                    <p class="empty-state-text">The uploaded Excel file did not contain any valid rows or the expected columns.</p>
+                </div>
+            </div>
+            {% endif %}
+
+        {% elif searched %}
+            {% if has_results %}
+            <div class="results-summary">
+                <div class="results-info">
+                    <span class="results-count">{{ total_cars }}</span> vehicle{{ total_cars|pluralize }} found
+                    <span class="results-divider">|</span>
+                    <span class="results-parts">{{ total_parts_found }} matching part{{ total_parts_found|pluralize }}</span>
+                    <span class="results-divider">|</span>
+                    Searching: <strong>"{{ search_query }}"</strong>
+                    {% if query != search_query %}
+                    <span class="results-divider">|</span>
+                    <span class="results-normalized-note">from "{{ query }}"</span>
+                    {% endif %}
+                </div>
+                <div class="results-summary-actions">
+                    <a href="{{ part_search_export_url }}?q={{ query|urlencode }}" class="btn btn-secondary btn-lg search-export-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <span>Export all to Excel</span>
+                    </a>
+                    <div class="results-page-info">
+                        Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card basket-assign-card">
+                <form method="post" action="{% url 'inventory:add_search_results_to_basket' %}" id="search-basket-form" class="basket-assign-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="q" value="{{ query }}">
+                    <input type="hidden" name="page" value="{{ page_obj.number }}">
+                    <div id="search-basket-feedback" class="feedback-stack" aria-live="polite"></div>
+                    <div class="basket-assign-fields">
+                        <div class="form-group">
+                            <label class="form-label" for="search-basket-brand">Brand Name <span class="required-mark">*</span></label>
+                            <input type="text" name="brand" id="search-basket-brand" class="form-input" placeholder="e.g., Kanoya, Brembo..." required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="search-basket-brand-number">Brand number <span class="required-mark">*</span></label>
+                            <input type="text" name="brand_number" id="search-basket-brand-number" class="form-input" placeholder="e.g., C13X20" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg basket-assign-submit" id="search-basket-submit">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                            <span>Add all results to basket</span>
+                        </button>
+                    </div>
+                    <p class="basket-assign-note">Applies the same brand details to every vehicle in this search, not only the current page.</p>
+                </form>
+            </div>
+
+            <div class="card panel-card">
+                <div class="table-wrapper">
+                    <table class="data-table" id="search-results-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Car Model</th>
+                                <th>Steering</th>
+                                <th>Trans.</th>
+                                <th>Drive</th>
+                                <th>Engine</th>
+                                <th>Parameters</th>
+                                <th>Part Numbers</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in page_obj %}
+                            <tr class="result-row">
+                                <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                                <td class="car-model-cell">
+                                    <div class="car-model-text">{{ item.car.car_model|default:"—" }}</div>
+                                    <div class="car-id-text">{{ item.car.car_id }}</div>
+                                </td>
+                                <td>
+                                    {% if item.car.steering %}
+                                    <span class="badge {% if item.car.steering == 'LHD' %}badge-blue{% elif item.car.steering == 'RHD' %}badge-amber{% else %}badge-purple{% endif %}">
+                                        {{ item.car.steering }}
+                                    </span>
+                                    {% else %}—{% endif %}
+                                </td>
+                                <td>{{ item.car.transmission|default:"—" }}</td>
+                                <td>{{ item.car.wd|default:"—" }}</td>
+                                <td>
+                                    <span class="engine-text">{{ item.car.engine|default:"—" }}</span>
+                                </td>
+                                <td>
+                                    <span class="params-text">{{ item.car.car_parameters|default:"—" }}</span>
+                                </td>
+                                <td class="parts-cell">
+                                    {% for part in item.parts %}
+                                    <span class="part-tag">{{ part.part_number }}</span>
+                                    {% endfor %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if page_obj.has_other_pages %}
+            <div class="pagination-wrapper">
+                <div class="pagination">
+                    {% if page_obj.has_previous %}
+                    <a href="?q={{ query }}&page=1" class="page-link" title="First page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                    </a>
+                    <a href="?q={{ query }}&page={{ page_obj.previous_page_number }}" class="page-link">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                        Prev
+                    </a>
+                    {% endif %}
+
+                    {% for num in page_obj.paginator.page_range %}
+                        {% if page_obj.number == num %}
+                        <span class="page-link active">{{ num }}</span>
+                        {% elif num > page_obj.number|add:"-4" and num < page_obj.number|add:"4" %}
+                        <a href="?q={{ query }}&page={{ num }}" class="page-link">{{ num }}</a>
+                        {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                        <a href="?q={{ query }}&page={{ num }}" class="page-link">{{ num }}</a>
+                        {% elif num == page_obj.number|add:"-4" or num == page_obj.number|add:"4" %}
+                        <span class="page-dots">...</span>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if page_obj.has_next %}
+                    <a href="?q={{ query }}&page={{ page_obj.next_page_number }}" class="page-link">
+                        Next
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </a>
+                    <a href="?q={{ query }}&page={{ page_obj.paginator.num_pages }}" class="page-link" title="Last page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% else %}
+            <div class="card panel-card">
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/></svg>
+                    </div>
+                    <h3 class="empty-state-title">No results found</h3>
+                    <p class="empty-state-text">No vehicles found matching part number "<strong>{{ search_query }}</strong>". Please check the part number and try again.</p>
+                    {% if query != search_query %}
+                    <p class="empty-state-text empty-state-note">Symbols were removed from your search. We looked for <strong>{{ search_query }}</strong>.</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+        {% else %}
+        <div class="card panel-card">
+            <div class="empty-state">
+                <div class="empty-state-icon">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
+                <h3 class="empty-state-title">No results yet</h3>
+                <p class="empty-state-text">Search by part number or upload an Excel file for bulk search. Results will appear in the table below.</p>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+
+{% if bulk_summary %}
+<div class="modal-overlay" id="bulk-summary-modal">
+    <div class="modal-card bulk-summary-card">
+        <div class="modal-header">
+            <h3 class="modal-title">Bulk Search Summary</h3>
+            <button type="button" class="modal-close" onclick="closeBulkSummaryModal()" aria-label="Close">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <div class="modal-body bulk-summary-body">
+            <div class="bulk-summary-line"><span>Searched numbers</span><strong>{{ bulk_summary.searched_count }}</strong></div>
+            <div class="bulk-summary-line"><span>Found numbers</span><strong>{{ bulk_summary.found_count }}</strong></div>
+            <div class="bulk-summary-line"><span>Matched car models</span><strong>{{ bulk_summary.car_models_matched }}</strong></div>
+            <div class="bulk-summary-line"><span>Added to basket</span><strong>{{ bulk_summary.added_to_basket }}</strong></div>
+            <div class="bulk-summary-line"><span>Not found</span><strong>{{ bulk_summary.missed_count }}</strong></div>
+        </div>
+        <div class="modal-footer">
+            {% if bulk_summary.missed_count %}
+            <a href="{% url 'inventory:bulk_search_missed_export' %}" class="btn btn-secondary">
+                Export missed to Excel ({{ bulk_summary.missed_count }})
+            </a>
+            {% endif %}
+            <button type="button" class="btn btn-primary" onclick="closeBulkSummaryModal()">Close</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .search-tools-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: var(--space-xl);
+        align-items: start;
+        margin-bottom: var(--space-xl);
+    }
+
+    .search-tools-block { min-width: 0; }
+
+    .search-results-panel {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .panel-title {
+        margin: 0 0 var(--space-md);
+        font-size: var(--font-md);
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .search-card,
+    .panel-card,
+    .basket-assign-card {
+        margin-bottom: var(--space-md);
+    }
+
+    .panel-card { padding: 0; overflow: hidden; }
+
+    .search-form-row,
+    .basket-assign-fields {
+        display: flex;
+        align-items: end;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .basket-assign-form .form-group {
+        flex: 1 1 180px;
+        margin-bottom: 0;
+    }
+
+    .basket-assign-submit {
+        white-space: nowrap;
+    }
+
+    .basket-assign-note {
+        margin: var(--space-md) 0 0;
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+    }
+
+    .required-mark { color: var(--error); }
+
+    .results-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-md);
+        padding: 0 var(--space-xs);
+        flex-wrap: wrap;
+        gap: var(--space-md);
+    }
+
+    .results-summary-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .search-export-btn {
+        white-space: nowrap;
+    }
+
+    .results-info { font-size: var(--font-sm); color: var(--text-secondary); }
+    .results-count { font-weight: 700; color: var(--accent-light); font-size: var(--font-lg); }
+    .results-parts { color: var(--text-muted); }
+    .results-divider { margin: 0 var(--space-sm); color: var(--text-dim); }
+    .results-page-info { font-size: var(--font-xs); color: var(--text-muted); }
+
+    .car-model-cell { max-width: 350px; }
+    .car-model-text { font-weight: 500; color: var(--text-primary); font-size: var(--font-sm); }
+    .car-id-text { font-size: var(--font-xs); color: var(--text-dim); margin-top: 2px; font-family: 'SF Mono', 'Fira Code', monospace; }
+    .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
+    .engine-text, .params-text { font-size: var(--font-xs); color: var(--text-muted); }
+
+    .parts-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+    .part-tag {
+        display: inline-flex; align-items: center; padding: 2px 8px;
+        background: var(--accent-dim); color: var(--accent-light); border-radius: var(--radius-sm);
+        font-size: var(--font-xs); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace; letter-spacing: 0.02em;
+    }
+
+    .brand-name { font-weight: 600; color: #fbbf24; }
+    .brand-number-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-xs); color: var(--text-secondary); }
+    .badge-red { background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); }
+    .actions-cell { display: flex; gap: 4px; }
+    .btn-edit {
+        background: rgba(59, 130, 246, 0.1); color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
+
+    .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
+    .pagination { display: flex; align-items: center; gap: 4px; }
+    .page-link {
+        display: inline-flex; align-items: center; gap: 4px; padding: 0.4rem 0.75rem;
+        border-radius: var(--radius-md); font-size: var(--font-sm); font-weight: 500;
+        color: var(--text-secondary); background: var(--card-bg); border: 1px solid var(--card-border);
+        transition: all var(--t-fast); cursor: pointer; text-decoration: none;
+    }
+    .page-link:hover { background: var(--card-bg-hover); color: var(--text-primary); border-color: #cbd5e1; }
+    .page-link.active { background: var(--accent-dim); color: var(--accent-light); border-color: rgba(228, 0, 43, 0.3); cursor: default; }
+    .page-dots { padding: 0 var(--space-sm); color: var(--text-dim); }
+
+    .result-row { transition: all var(--t-fast); }
+    .result-row:hover { background: var(--surface-muted, #f8fafc) !important; }
+
+    #search-results-table { width: 100%; }
+
+    input[type=file]::file-selector-button {
+        margin-right: 12px; border: none; background: var(--accent-dim);
+        padding: 6px 12px; border-radius: 4px; color: var(--accent-light);
+        cursor: pointer; transition: background .2s ease-in-out; font-weight: 600;
+    }
+    input[type=file]::file-selector-button:hover { background: rgba(228, 0, 43, 0.2); }
+
+    .modal-overlay {
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        display: flex; align-items: center; justify-content: center;
+        padding: var(--space-lg);
+        animation: modalFadeIn 0.2s ease;
+    }
+    .modal-card {
+        background: var(--card-bg); border: 1px solid var(--card-border);
+        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+        animation: modalSlideUp 0.25s ease;
+    }
+    .modal-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
+    }
+    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
+    .modal-close {
+        background: none; border: none; color: var(--text-muted); cursor: pointer;
+        padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast);
+    }
+    .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
+    .modal-body { padding: var(--space-lg) var(--space-xl); }
+    .bulk-summary-body { display: grid; gap: var(--space-sm); }
+    .bulk-summary-line {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--space-md); padding: 0.65rem 0;
+        border-bottom: 1px solid var(--card-border);
+        font-size: var(--font-sm); color: var(--text-secondary);
+    }
+    .bulk-summary-line:last-child { border-bottom: none; }
+    .bulk-summary-line strong { color: var(--text-primary); font-size: var(--font-md); }
+
+    .modal-footer {
+        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md);
+        padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border);
+    }
+
+    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 1100px) {
+        .search-tools-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+        .search-form-row,
+        .basket-assign-fields { flex-direction: column; align-items: stretch; }
+        .search-form-row .search-bar,
+        .basket-assign-form .form-group,
+        .basket-assign-submit { width: 100%; }
+        .results-summary { flex-direction: column; gap: var(--space-sm); align-items: flex-start; }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const searchBasketForm = document.getElementById('search-basket-form');
+    if (searchBasketForm) {
+        searchBasketForm.addEventListener('submit', function (event) {
+            const brandInput = document.getElementById('search-basket-brand');
+            const brandNumberInput = document.getElementById('search-basket-brand-number');
+            const feedback = document.getElementById('search-basket-feedback');
+            const brand = brandInput.value.trim();
+            const brandNumber = brandNumberInput.value.trim();
+            let message = '';
+
+            brandInput.classList.remove('is-invalid');
+            brandNumberInput.classList.remove('is-invalid');
+            window.clearAppFormFeedback(feedback);
+
+            if (!brand) {
+                brandInput.classList.add('is-invalid');
+                message = 'Brand name is required.';
+            }
+            if (!brandNumber) {
+                brandNumberInput.classList.add('is-invalid');
+                message = message ? 'Brand name and brand number are required.' : 'Brand number is required.';
+            }
+            if (message) {
+                event.preventDefault();
+                window.showAppFormFeedback(feedback, message, 'error');
+            }
+        });
+    }
+
+    function closeBulkSummaryModal() {
+        const modal = document.getElementById('bulk-summary-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    const bulkSummaryModal = document.getElementById('bulk-summary-modal');
+    if (bulkSummaryModal) {
+        bulkSummaryModal.style.display = 'flex';
+        bulkSummaryModal.addEventListener('click', function(e) {
+            if (e.target === bulkSummaryModal) closeBulkSummaryModal();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeBulkSummaryModal();
+        });
+    }
+</script>
+{% endblock %}

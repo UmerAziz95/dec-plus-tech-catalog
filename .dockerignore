@@ -1,0 +1,49 @@
+# Git / Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose*.yml
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs & data files (large Excel files)
+*.xlsx
+*.csv
+*.md
+!requirements.txt
+
+# SQLite (we use PostgreSQL)
+db.sqlite3
+
+# Media uploads
+media/
+
+# Collected static (rebuilt in container)
+staticfiles/
+
+# Gemini / AI
+.gemini/
