@@ -99,7 +99,16 @@ DATABASES = {
         'PASSWORD': os.environ.get('DB_PASSWORD', 'root123'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '5432'),
-    }
+    },
+    # External database for one-time data sync (provide creds via env vars or .env)
+    'external': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('EXT_DB_NAME', 'parts_catalog'),
+        'USER': os.environ.get('EXT_DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('EXT_DB_PASSWORD', '1'),
+        'HOST': os.environ.get('EXT_DB_HOST', 'localhost'),
+        'PORT': os.environ.get('EXT_DB_PORT', '5432'),
+    },
 }
 
 

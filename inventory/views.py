@@ -1,6 +1,10 @@
+import json
+import threading
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
+from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -10,13 +14,23 @@ from django.views.decorators.http import require_POST
 from urllib.parse import urlencode
 
 from .forms import ExcelImportForm
-from .models import Car, Group, CarGroup, Part, Basket, BasketItem, ImportBatch
+from .models import Car, CarGroup, Part, Basket, BasketItem, ImportBatch
 from .services.basket_service import BasketService
 from .services.bulk_search_service import BulkSearchService
 from .services.car_catalog_service import CarCatalogService
 from .services.import_services import ExcelImportService
 from .services.part_number_utils import sanitize_part_number
 from .services.part_search_service import PartSearchService
+
+# ── In-memory state for the one-time external DB sync ──
+_sync_lock = threading.Lock()
+_sync_state = {
+    'status': 'idle',       # idle | running | completed | failed
+    'parts_synced': 0,
+    'car_groups_synced': 0,
+    'error': '',
+}
+
 
 
 def _basket_redirect_params(request):
@@ -54,7 +68,6 @@ def dashboard_view(request):
         'active_page': 'dashboard',
         'total_cars': Car.objects.count(),
         'total_parts': Part.objects.count(),
-        'total_groups': Group.objects.count(),
         'basket_count': BasketService.count_for_user(request.user),
     }
     return render(request, 'inventory/dashboard.html', context)
@@ -550,7 +563,7 @@ def basket_view(request):
     basket_items = BasketService.filter_items_queryset(
         request.user,
         query,
-    ).select_related('part__group')
+    ).select_related('part')
 
     page_number = request.GET.get('page', 1)
     paginator = Paginator(basket_items, BasketService.BASKET_PAGE_SIZE)
@@ -606,3 +619,179 @@ def basket_group_detail_view(request, basket_id):
         'basket_count': BasketService.count_for_user(request.user),
     }
     return render(request, 'inventory/basket_group_detail.html', context)
+
+
+# ============================================
+# EXTERNAL DB SYNC VIEWS
+# ============================================
+
+def _run_sync_worker():
+    """Background worker that fetches Part and CarGroup from external DB."""
+    import logging
+    from django.db import connections
+
+    logger = logging.getLogger('inventory.sync')
+    BATCH_SIZE = 5000
+    log_lines = []
+
+    def log(msg):
+        logger.info(msg)
+        log_lines.append(msg)
+        _sync_state['log'] = log_lines[:]
+
+    try:
+        log('[SYNC] Connecting to external database...')
+        ext_conn = connections['external']
+        ext_cursor = ext_conn.cursor()
+        log('[SYNC] Connected OK.')
+
+        # ── Introspect external parts table columns ──────────────────────────
+        log('[SYNC] Introspecting external "parts" table columns...')
+        ext_cursor.execute("""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'parts'
+            ORDER BY ordinal_position
+        """)
+        ext_parts_cols = ext_cursor.fetchall()
+        col_names = [r[0] for r in ext_parts_cols]
+        log(f'[SYNC] External parts columns: {col_names}')
+
+        # ── Fetch parts ──────────────────────────────────────────────────────
+        log('[SYNC] Fetching 100 rows from external parts...')
+        ext_cursor.execute(
+            'SELECT group_id, brand_id AS brand, code AS part_number FROM parts LIMIT 100'
+        )
+        columns = [col[0] for col in ext_cursor.description]
+        rows = [dict(zip(columns, row)) for row in ext_cursor.fetchall()]
+        log(f'[SYNC] Fetched {len(rows)} part rows. Columns returned: {columns}')
+
+        if rows:
+            log(f'[SYNC] Sample row: {rows[0]}')
+
+        parts_buffer = []
+        parts_total = 0
+        skipped_parts = 0
+        for row in rows:
+            pn = str(row.get('part_number', '') or '').strip()
+            if not pn:
+                skipped_parts += 1
+                continue
+            parts_buffer.append(Part(
+                group_id=str(row.get('group_id', '') or ''),
+                brand=str(row.get('brand', '') or ''),
+                part_number=pn,
+            ))
+            if len(parts_buffer) >= BATCH_SIZE:
+                Part.objects.bulk_create(parts_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
+                parts_total += len(parts_buffer)
+                parts_buffer = []
+        if parts_buffer:
+            Part.objects.bulk_create(parts_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
+            parts_total += len(parts_buffer)
+
+        log(f'[SYNC] Parts inserted: {parts_total}, skipped (empty part_number): {skipped_parts}')
+        _sync_state['parts_synced'] = parts_total
+
+        # ── Fetch car_groups ─────────────────────────────────────────────────
+        log('[SYNC] Introspecting external "car_groups" table columns...')
+        ext_cursor.execute("""
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'car_groups'
+            ORDER BY ordinal_position
+        """)
+        cg_cols = [r[0] for r in ext_cursor.fetchall()]
+        log(f'[SYNC] External car_groups columns: {cg_cols}')
+
+        log('[SYNC] Fetching 100 rows from external car_groups...')
+        ext_cursor.execute('SELECT car_id, group_id FROM car_groups LIMIT 100')
+        columns = [col[0] for col in ext_cursor.description]
+        rows = [dict(zip(columns, row)) for row in ext_cursor.fetchall()]
+        log(f'[SYNC] Fetched {len(rows)} car_group rows.')
+
+        if rows:
+            log(f'[SYNC] Sample row: {rows[0]}')
+
+        cg_buffer = []
+        cg_total = 0
+        for row in rows:
+            gid = str(row.get('group_id', '') or '')
+            ext_car_id = str(row.get('car_id', '') or '')
+            if not ext_car_id:
+                continue
+            cg_buffer.append(CarGroup(car_id=ext_car_id, group_id=gid))
+            if len(cg_buffer) >= BATCH_SIZE:
+                CarGroup.objects.bulk_create(cg_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
+                cg_total += len(cg_buffer)
+                cg_buffer = []
+        if cg_buffer:
+            CarGroup.objects.bulk_create(cg_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
+            cg_total += len(cg_buffer)
+
+        log(f'[SYNC] CarGroups inserted: {cg_total}')
+        _sync_state['car_groups_synced'] = cg_total
+
+        ext_cursor.close()
+        ext_conn.close()
+
+        log('[SYNC] Sync completed successfully.')
+        _sync_state['status'] = 'completed'
+
+    except Exception as exc:
+        _sync_state['status'] = 'failed'
+        _sync_state['error'] = str(exc)
+
+
+@login_required
+def sync_external_db_view(request):
+    """Page with the one-time external DB sync button."""
+    # Check if sync already completed (data exists)
+    already_synced = (
+        _sync_state['status'] == 'completed'
+        or (Part.objects.exists() and CarGroup.objects.exists())
+    )
+    if already_synced and _sync_state['status'] != 'running':
+        _sync_state['status'] = 'completed'
+
+    context = {
+        'active_page': 'sync_external',
+        'sync_status': _sync_state['status'],
+        'parts_synced': _sync_state['parts_synced'],
+        'car_groups_synced': _sync_state['car_groups_synced'],
+        'sync_error': _sync_state['error'],
+        'basket_count': BasketService.count_for_user(request.user),
+    }
+    return render(request, 'inventory/sync_external.html', context)
+
+
+@login_required
+@require_POST
+def trigger_sync_view(request):
+    """Trigger the one-time external DB sync (AJAX POST)."""
+    with _sync_lock:
+        if _sync_state['status'] == 'running':
+            return JsonResponse({'ok': False, 'error': 'Sync is already running.'})
+        if _sync_state['status'] == 'completed':
+            return JsonResponse({'ok': False, 'error': 'Sync has already completed.'})
+
+        _sync_state['status'] = 'running'
+        _sync_state['parts_synced'] = 0
+        _sync_state['car_groups_synced'] = 0
+        _sync_state['error'] = ''
+
+    thread = threading.Thread(target=_run_sync_worker, daemon=True)
+    thread.start()
+    return JsonResponse({'ok': True})
+
+
+@login_required
+def sync_status_view(request):
+    """AJAX polling endpoint for sync progress."""
+    return JsonResponse({
+        'status': _sync_state['status'],
+        'parts_synced': _sync_state['parts_synced'],
+        'car_groups_synced': _sync_state['car_groups_synced'],
+        'error': _sync_state['error'],
+        'log': _sync_state.get('log', []),
+    })

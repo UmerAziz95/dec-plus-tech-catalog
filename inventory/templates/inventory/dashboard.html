@@ -28,15 +28,7 @@
             </div>
         </div>
 
-        <div class="stat-card">
-            <div class="stat-icon-box green">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <div class="stat-content">
-                <div class="stat-label">Total Groups</div>
-                <div class="stat-value">{{ total_groups|default:"0" }}</div>
-            </div>
-        </div>
+
 
         <div class="stat-card">
             <div class="stat-icon-box amber">
@@ -92,6 +84,13 @@
                 </div>
                 <div style="font-weight: 600; font-size: var(--font-sm);">Import Data</div>
                 <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Upload Cars, Groups and Parts</div>
+            </a>
+            <a href="{% url 'inventory:sync_external' %}" class="card" style="text-align: center; cursor: pointer;">
+                <div style="color: #818cf8; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Sync External DB</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">One-time import from external DB</div>
             </a>
         </div>
     </div>
