@@ -126,6 +126,7 @@ class BulkSearchService:
                         car=car,
                         part=part,
                         basket=basket,
+                        group_id=part.group_id,
                     ))
 
         for offset in range(0, len(entries), batch_size):

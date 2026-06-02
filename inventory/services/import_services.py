@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
-from inventory.models import Car, CarAttribute, CarGroup, Group, ImportBatch, ImportRowError, Part
+from inventory.models import Car, CarGroup, ImportBatch, ImportRowError, Part
 
 MAX_IMPORT_ERRORS = 2000
 
@@ -157,8 +157,6 @@ class ExcelImportService:
 
         self._update_progress(batch, 'Saving cars…')
         self._upsert_cars_batched(parsed['cars'], batch, batch_size)
-        self._update_progress(batch, 'Normalizing car attributes…')
-        self._normalize_cars_batched(parsed['cars'], batch, batch_size)
         self._finalize_completed(
             batch,
             total_rows=parsed['total_rows'],
@@ -181,8 +179,6 @@ class ExcelImportService:
             self._finalize_failed(batch)
             return
 
-        self._update_progress(batch, 'Saving groups…')
-        self._upsert_groups_batched(parsed['group_ids'], batch, batch_size)
         self._update_progress(batch, 'Saving car–group links…')
         links_created = self._upsert_car_groups_batched(parsed['car_group_links'], batch, batch_size)
         if parsed['car_group_links'] and links_created == 0:
@@ -215,8 +211,6 @@ class ExcelImportService:
             self._finalize_failed(batch)
             return
 
-        self._update_progress(batch, 'Saving groups…')
-        self._upsert_groups_batched(parsed['group_ids'], batch, batch_size)
         self._update_progress(batch, 'Saving parts…')
         self._upsert_parts_batched(parsed['parts'], batch, batch_size)
         self._finalize_completed(
@@ -392,22 +386,8 @@ class ExcelImportService:
                     )
         return total
 
-    def _upsert_groups_batched(self, group_ids, batch, bs):
-        gid_list = list(group_ids)
-        total = len(gid_list)
-        for start in range(0, total, bs):
-            chunk = gid_list[start:start + bs]
-            self._update_progress(batch, f'Groups {min(start + bs, total)}/{total}')
-            existing = set(Group.objects.filter(group_id__in=chunk).values_list('group_id', flat=True))
-            to_create = [Group(group_id=gid) for gid in chunk if gid not in existing]
-            with transaction.atomic():
-                if to_create:
-                    Group.objects.bulk_create(to_create, batch_size=bs)
-        return total
-
     def _upsert_car_groups_batched(self, links, batch, bs):
         car_lookup = dict(Car.objects.values_list('car_id', 'id'))
-        group_lookup = dict(Group.objects.values_list('group_id', 'id'))
         links_list = list(links)
         total_pairs = len(links_list)
         links_created = 0
@@ -417,11 +397,10 @@ class ExcelImportService:
             objects = []
             for car_id, group_id in chunk:
                 car_pk = car_lookup.get(car_id)
-                group_pk = group_lookup.get(group_id)
-                if not car_pk or not group_pk:
+                if not car_pk:
                     self._add_error('Groups', 0, f'Unknown relation {car_id} -> {group_id}')
                     continue
-                objects.append(CarGroup(car_id=car_pk, group_id=group_pk))
+                objects.append(CarGroup(car_id=car_pk, group_id=group_id))
             if not objects:
                 continue
             with transaction.atomic():
@@ -430,62 +409,34 @@ class ExcelImportService:
         return links_created
 
     def _upsert_parts_batched(self, parts, batch, bs):
-        group_lookup = dict(Group.objects.values_list('group_id', 'id'))
         parts_list = list(parts)
         total = len(parts_list)
         for start in range(0, total, bs):
             chunk = parts_list[start:start + bs]
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
-            group_pks = set()
+            group_ids = set()
             part_nums = set()
             resolved = []
             for group_id, brand, part_number in chunk:
-                group_pk = group_lookup.get(group_id)
-                if not group_pk:
-                    self._add_error('Parts', 0, f'Unknown group_id {group_id}')
-                    continue
-                group_pks.add(group_pk)
+                group_ids.add(group_id)
                 part_nums.add(part_number)
-                resolved.append((group_pk, brand, part_number))
+                resolved.append((group_id, brand, part_number))
             if not resolved:
                 continue
             existing = set(
-                Part.objects.filter(group_id__in=group_pks, part_number__in=part_nums).values_list('group_id', 'part_number')
+                Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
             )
             to_create = []
-            for group_pk, brand, part_number in resolved:
-                key = (group_pk, part_number)
+            for group_id, brand, part_number in resolved:
+                key = (group_id, part_number)
                 if key in existing:
                     continue
                 existing.add(key)
-                to_create.append(Part(group_id=group_pk, brand=brand, part_number=part_number))
+                to_create.append(Part(group_id=group_id, brand=brand, part_number=part_number))
             if to_create:
                 with transaction.atomic():
                     Part.objects.bulk_create(to_create, batch_size=bs)
         return total
-
-    def _normalize_cars_batched(self, cars, batch, bs):
-        total = len(cars)
-        for start in range(0, total, bs):
-            chunk = cars[start:start + bs]
-            self._update_progress(batch, f'Attributes {min(start + bs, total)}/{total}')
-            car_ids = [row['car_id'] for row in chunk]
-            car_lookup = {item.car_id: item for item in Car.objects.filter(car_id__in=car_ids)}
-            attribute_objects = []
-            car_pks_to_clear = []
-            for row in chunk:
-                car_obj = car_lookup.get(row['car_id'])
-                if not car_obj:
-                    continue
-                car_pks_to_clear.append(car_obj.id)
-                metadata = row.get('metadata_json') or {}
-                for key, value in metadata.items():
-                    attribute_objects.append(CarAttribute(car=car_obj, attribute_key=key, attribute_value=str(value)))
-            with transaction.atomic():
-                if car_pks_to_clear:
-                    CarAttribute.objects.filter(car_id__in=car_pks_to_clear).delete()
-                if attribute_objects:
-                    CarAttribute.objects.bulk_create(attribute_objects, batch_size=bs)
 
     def _add_error(self, sheet_name, row_number, message):
         if len(self.errors) >= MAX_IMPORT_ERRORS:

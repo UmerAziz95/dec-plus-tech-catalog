@@ -54,58 +54,31 @@ class Car(models.Model):
         return self.car_model if self.car_model else self.car_id
 
 
-class Group(models.Model):
-    """
-    Represents a group that links parts to cars.
-    Imported from the 'carId & GroupId' sheet.
-    Each group has a unique group_id (e.g., MIT1147463).
-    A group can belong to multiple cars (many-to-many via CarGroup).
-    """
-    group_id = models.CharField(
-        max_length=50, unique=True, db_index=True,
-        help_text="Unique group identifier from Excel (e.g., MIT1147463)"
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'groups'
-        ordering = ['group_id']
-        verbose_name = 'Group'
-        verbose_name_plural = 'Groups'
-
-    def __str__(self):
-        return self.group_id
-
-
 class CarGroup(models.Model):
     """
     Many-to-many relationship between Cars and Groups.
     Imported from the 'carId & GroupId' sheet.
     One car can have many groups, and one group can belong to many cars.
     """
-    car = models.ForeignKey(
-        Car,
-        on_delete=models.CASCADE,
-        related_name='car_groups',
-        help_text="The car in this car-group relationship"
+    car_id = models.TextField(
+        db_index=True,
+        default='',
+        help_text="The car identifier (e.g., b7083...)"
     )
-    group = models.ForeignKey(
-        Group,
-        on_delete=models.CASCADE,
-        related_name='car_groups',
-        help_text="The group in this car-group relationship"
+    group_id = models.TextField(
+        db_index=True,
+        default='',
+        help_text="The group ID from Excel (e.g., MIT1147463)"
     )
 
     class Meta:
         db_table = 'car_groups'
-        unique_together = ('car', 'group')
+        unique_together = ('car_id', 'group_id')
         verbose_name = 'Car-Group Link'
         verbose_name_plural = 'Car-Group Links'
 
     def __str__(self):
-        return f"{self.car.car_id} -> {self.group.group_id}"
+        return f"{self.car_id} -> {self.group_id}"
 
 
 class Part(models.Model):
@@ -114,18 +87,17 @@ class Part(models.Model):
     Imported from the 'groupId & part_number' sheet.
     The part_number is the primary search field.
     """
-    group = models.ForeignKey(
-        Group,
-        on_delete=models.CASCADE,
-        related_name='parts',
-        help_text="The group this part belongs to"
+    group_id = models.TextField(
+        db_index=True,
+        default='',
+        help_text="The group ID this part belongs to"
     )
     brand = models.CharField(
         max_length=255, blank=True,
         help_text="Brand name (e.g., Mitsubishi)"
     )
-    part_number = models.CharField(
-        max_length=255, db_index=True,
+    part_number = models.TextField(
+        db_index=True,
         help_text="Part number - primary search field (e.g., MQ900871)"
     )
 
@@ -137,7 +109,7 @@ class Part(models.Model):
         ordering = ['part_number']
         indexes = [
             models.Index(fields=['part_number'], name='idx_part_number'),
-            models.Index(fields=['group', 'part_number'], name='idx_group_part'),
+            models.Index(fields=['group_id', 'part_number'], name='idx_group_part'),
         ]
         verbose_name = 'Part'
         verbose_name_plural = 'Parts'
@@ -196,6 +168,13 @@ class BasketItem(models.Model):
         on_delete=models.CASCADE,
         related_name='basket_items',
     )
+    group_id = models.CharField(
+        max_length=50,
+        db_index=True,
+        blank=True,
+        default='',
+        help_text="The group ID this basket item belongs to"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -221,26 +200,6 @@ class BasketItem(models.Model):
     @property
     def brand_number(self):
         return self.basket.brand_number
-
-
-class CarAttribute(models.Model):
-    car = models.ForeignKey(
-        Car,
-        on_delete=models.CASCADE,
-        related_name='attributes'
-    )
-    attribute_key = models.CharField(max_length=150, db_index=True)
-    attribute_value = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'car_attributes'
-        ordering = ['-id']
-        unique_together = ('car', 'attribute_key')
-
-    def __str__(self):
-        return f"{self.car.car_id} | {self.attribute_key}"
 
 
 class ImportBatch(models.Model):

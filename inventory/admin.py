@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Basket, BasketItem, Car, CarAttribute, CarGroup, Group, ImportBatch, ImportRowError, Part
+from .models import Basket, BasketItem, Car, CarGroup, ImportBatch, ImportRowError, Part
 
 
 @admin.register(Car)
@@ -11,30 +11,20 @@ class CarAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
-@admin.register(Group)
-class GroupAdmin(admin.ModelAdmin):
-    """Admin configuration for Group model."""
-    list_display = ('group_id', 'created_at')
-    search_fields = ('group_id',)
-    list_per_page = 25
-
-
 @admin.register(CarGroup)
 class CarGroupAdmin(admin.ModelAdmin):
     """Admin configuration for Car-Group link model."""
-    list_display = ('id', 'car', 'group')
-    search_fields = ('car__car_id', 'group__group_id')
-    raw_id_fields = ('car', 'group')
+    list_display = ('id', 'car_id', 'group_id')
+    search_fields = ('car_id', 'group_id')
     list_per_page = 25
 
 
 @admin.register(Part)
 class PartAdmin(admin.ModelAdmin):
     """Admin configuration for Part model."""
-    list_display = ('part_number', 'brand', 'group', 'created_at')
+    list_display = ('part_number', 'brand', 'group_id', 'created_at')
     list_filter = ('brand',)
-    search_fields = ('part_number', 'group__group_id')
-    raw_id_fields = ('group',)
+    search_fields = ('part_number', 'group_id')
     list_per_page = 25
 
 
@@ -48,18 +38,10 @@ class BasketAdmin(admin.ModelAdmin):
 
 @admin.register(BasketItem)
 class BasketItemAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'basket', 'part', 'car', 'created_at')
+    list_display = ('id', 'user', 'basket', 'part', 'car', 'group_id', 'created_at')
     list_filter = ('basket__brand',)
-    search_fields = ('basket__brand', 'basket__brand_number', 'part__part_number', 'car__car_id')
+    search_fields = ('basket__brand', 'basket__brand_number', 'part__part_number', 'car__car_id', 'group_id')
     raw_id_fields = ('user', 'basket', 'car', 'part')
-    list_per_page = 25
-
-
-@admin.register(CarAttribute)
-class CarAttributeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'car', 'attribute_key', 'attribute_value', 'created_at')
-    search_fields = ('car__car_id', 'attribute_key', 'attribute_value')
-    raw_id_fields = ('car',)
     list_per_page = 25
 
 

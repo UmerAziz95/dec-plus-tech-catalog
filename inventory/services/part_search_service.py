@@ -14,18 +14,18 @@ class PartSearchService:
             return []
 
         matching_parts = annotate_part_number_normalized(
-            Part.objects.select_related('group')
+            Part.objects.all()
         ).filter(part_number_norm__iexact=query)
 
         if not matching_parts.exists():
             matching_parts = annotate_part_number_normalized(
-                Part.objects.select_related('group')
+                Part.objects.all()
             ).filter(part_number_norm__icontains=query)
 
         group_pks = set(matching_parts.values_list('group_id', flat=True))
         car_groups = CarGroup.objects.filter(
             group_id__in=group_pks
-        ).select_related('car', 'group')
+        ).select_related('car')
 
         parts_by_group_pk = {}
         for part in matching_parts:
@@ -86,6 +86,7 @@ class PartSearchService:
                     car=car,
                     part=part,
                     basket=basket,
+                    group_id=part.group_id,
                 ))
 
         for offset in range(0, len(entries), batch_size):

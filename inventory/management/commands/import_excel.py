@@ -14,7 +14,7 @@ Usage:
 import time
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from inventory.models import Car, Group, CarGroup, Part
+from inventory.models import Car, CarGroup, Part
 
 
 class Command(BaseCommand):
@@ -71,7 +71,6 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('Clearing existing data...'))
             Part.objects.all().delete()
             CarGroup.objects.all().delete()
-            Group.objects.all().delete()
             Car.objects.all().delete()
             self.stdout.write(self.style.SUCCESS('Existing data cleared.'))
 
@@ -190,25 +189,8 @@ class Command(BaseCommand):
 
         self.stdout.write(f'  Found {len(all_group_ids)} unique groups, {len(all_pairs)} total pairs')
 
-        # Phase 2: Create Group objects
-        self.stdout.write('  Phase 2: Creating Group objects...')
-        existing_group_ids = set(Group.objects.values_list('group_id', flat=True))
-        new_group_ids = all_group_ids - existing_group_ids
-
-        groups_to_create = [Group(group_id=gid) for gid in new_group_ids]
-        created_count = 0
-        for i in range(0, len(groups_to_create), batch_size):
-            batch = groups_to_create[i:i + batch_size]
-            Group.objects.bulk_create(batch, ignore_conflicts=True)
-            created_count += len(batch)
-            if created_count % 50000 == 0:
-                self.stdout.write(f'    Created {created_count} groups...')
-
-        self.stdout.write(self.style.SUCCESS(f'  Groups: {len(new_group_ids)} new created'))
-
         # Phase 3: Create CarGroup links
         self.stdout.write('  Phase 3: Creating Car-Group links...')
-        group_lookup = dict(Group.objects.values_list('group_id', 'id'))
 
         # Deduplicate pairs
         unique_pairs = set(all_pairs)
@@ -226,18 +208,17 @@ class Command(BaseCommand):
 
         for car_id_str, group_id_str in unique_pairs:
             car_pk = car_lookup.get(car_id_str)
-            group_pk = group_lookup.get(group_id_str)
 
-            if not car_pk or not group_pk:
+            if not car_pk:
                 errors += 1
                 continue
 
-            if (car_pk, group_pk) in existing_links:
+            if (car_pk, group_id_str) in existing_links:
                 skipped += 1
                 continue
 
-            links_to_create.append(CarGroup(car_id=car_pk, group_id=group_pk))
-            existing_links.add((car_pk, group_pk))
+            links_to_create.append(CarGroup(car_id=car_pk, group_id=group_id_str))
+            existing_links.add((car_pk, group_id_str))
             created += 1
 
             if len(links_to_create) >= batch_size:
@@ -262,10 +243,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(f'\n--- Importing Parts from "{sheet_name}" ---'))
         ws = wb[sheet_name]
         start = time.time()
-
-        # Build lookup
-        group_lookup = dict(Group.objects.values_list('group_id', 'id'))
-        self.stdout.write(f'  Loaded {len(group_lookup)} groups for lookup')
 
         # Collect existing parts to avoid duplicates
         self.stdout.write('  Loading existing parts for dedup...')
@@ -295,21 +272,16 @@ class Command(BaseCommand):
                 pn_str = str(pn).strip()
                 brand_str = str(brand or '').strip()
 
-                group_pk = group_lookup.get(gid_str)
-                if not group_pk:
-                    errors += 1
-                    continue
-
-                if (group_pk, pn_str) in existing_parts:
+                if (gid_str, pn_str) in existing_parts:
                     skipped += 1
                     continue
 
                 parts_to_create.append(Part(
-                    group_id=group_pk,
+                    group_id=gid_str,
                     brand=brand_str,
                     part_number=pn_str,
                 ))
-                existing_parts.add((group_pk, pn_str))
+                existing_parts.add((gid_str, pn_str))
                 created += 1
 
                 if len(parts_to_create) >= batch_size:
@@ -333,6 +305,5 @@ class Command(BaseCommand):
         """Print a summary of the current database state."""
         self.stdout.write(self.style.NOTICE('\n--- Database Summary ---'))
         self.stdout.write(f'  Cars:           {Car.objects.count():,}')
-        self.stdout.write(f'  Groups:         {Group.objects.count():,}')
         self.stdout.write(f'  Car-Group links: {CarGroup.objects.count():,}')
         self.stdout.write(f'  Parts:          {Part.objects.count():,}')

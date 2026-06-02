@@ -26,4 +26,8 @@ urlpatterns = [
     path('basket/<int:basket_id>/remove/', views.remove_from_basket, name='remove_from_basket'),
     path('basket/<int:basket_id>/update/', views.update_basket_item, name='update_basket_item'),
     path('book-search/', views.book_search_view, name='book_search'),
+    # External DB sync
+    path('sync-external/', views.sync_external_db_view, name='sync_external'),
+    path('sync-external/trigger/', views.trigger_sync_view, name='sync_trigger'),
+    path('sync-external/status/', views.sync_status_view, name='sync_status'),
 ]

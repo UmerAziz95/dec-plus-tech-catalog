@@ -72,6 +72,7 @@ class BasketService:
             car=car,
             part=part,
             basket=basket,
+            defaults={'group_id': part.group_id}
         )
         return item, created
 
