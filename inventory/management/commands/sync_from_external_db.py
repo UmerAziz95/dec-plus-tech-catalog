@@ -49,34 +49,34 @@ class Command(BaseCommand):
         """Fetch car_groups from external DB and insert into local DB."""
         self._log('\n-- Syncing CarGroup table --------------------------')
 
-        ext_cursor.execute('SELECT car_id, group_id FROM car_groups LIMIT 100')
-        rows = self._fetch_all(ext_cursor)
-        total = len(rows)
-        self._log(f'  Fetched {total:,} rows from external car_groups table.')
-
-        if total == 0:
-            self._log('  Nothing to import.', self.style.WARNING)
-            return
-
-        created = 0
+        ext_cursor.execute('SELECT car_id, group_id FROM car_groups')
+        
         objects_buffer = []
+        created = 0
 
-        for row in rows:
-            group_id = row.get('group_id', '')
-            ext_car_id = str(row.get('car_id', ''))
-            if not ext_car_id:
-                continue
-            objects_buffer.append(CarGroup(car_id=ext_car_id, group_id=group_id))
+        while True:
+            chunk = ext_cursor.fetchmany(10000)
+            if not chunk:
+                break
 
-            if len(objects_buffer) >= BATCH_SIZE:
-                CarGroup.objects.bulk_create(
-                    objects_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True
-                )
-                created += len(objects_buffer)
-                self._log(f'    ... inserted batch ({created:,}/{total:,})')
-                objects_buffer = []
+            columns = [col[0] for col in ext_cursor.description]
+            rows = [dict(zip(columns, row)) for row in chunk]
 
-        # flush remaining
+            for row in rows:
+                group_id = row.get('group_id', '')
+                ext_car_id = str(row.get('car_id', '') or '')
+                if not ext_car_id:
+                    continue
+                objects_buffer.append(CarGroup(car_id=ext_car_id, group_id=group_id))
+
+                if len(objects_buffer) >= BATCH_SIZE:
+                    CarGroup.objects.bulk_create(
+                        objects_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True
+                    )
+                    created += len(objects_buffer)
+                    self._log(f'    ... inserted batch ({created:,})')
+                    objects_buffer = []
+
         if objects_buffer:
             CarGroup.objects.bulk_create(
                 objects_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True
@@ -92,37 +92,38 @@ class Command(BaseCommand):
         """Fetch parts from external DB and insert into local DB."""
         self._log('\n-- Syncing Part table ------------------------------')
 
-        ext_cursor.execute('SELECT group_id, brand_id AS brand, code AS part_number FROM parts LIMIT 100')
-        rows = self._fetch_all(ext_cursor)
-        total = len(rows)
-        self._log(f'  Fetched {total:,} rows from external parts table.')
-
-        if total == 0:
-            self._log('  Nothing to import.', self.style.WARNING)
-            return
+        ext_cursor.execute("SELECT group_id, brand_id AS brand, code AS part_number FROM parts WHERE code IS NOT NULL AND code != ''")
 
         created = 0
         objects_buffer = []
 
-        for row in rows:
-            group_id = row.get('group_id', '')
-            brand = row.get('brand', '')
-            part_number = row.get('part_number', '')
+        while True:
+            chunk = ext_cursor.fetchmany(10000)
+            if not chunk:
+                break
 
-            if not part_number:
-                continue
+            columns = [col[0] for col in ext_cursor.description]
+            rows = [dict(zip(columns, row)) for row in chunk]
 
-            objects_buffer.append(
-                Part(group_id=group_id, brand=brand, part_number=part_number)
-            )
+            for row in rows:
+                group_id = row.get('group_id', '')
+                brand = row.get('brand', '')
+                part_number = row.get('part_number', '')
 
-            if len(objects_buffer) >= BATCH_SIZE:
-                Part.objects.bulk_create(
-                    objects_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True
+                if not part_number:
+                    continue
+
+                objects_buffer.append(
+                    Part(group_id=group_id, brand=brand, part_number=part_number)
                 )
-                created += len(objects_buffer)
-                self._log(f'    … inserted batch ({created:,}/{total:,})')
-                objects_buffer = []
+
+                if len(objects_buffer) >= BATCH_SIZE:
+                    Part.objects.bulk_create(
+                        objects_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True
+                    )
+                    created += len(objects_buffer)
+                    self._log(f'    … inserted batch ({created:,})')
+                    objects_buffer = []
 
         # flush remaining
         if objects_buffer:

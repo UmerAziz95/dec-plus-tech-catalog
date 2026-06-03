@@ -658,37 +658,38 @@ def _run_sync_worker():
         log(f'[SYNC] External parts columns: {col_names}')
 
         # ── Fetch parts ──────────────────────────────────────────────────────
-        log('[SYNC] Fetching 100 rows from external parts...')
+        log('[SYNC] Fetching ALL valid rows from external parts (in chunks)...')
         ext_cursor.execute(
-            'SELECT group_id, brand_id AS brand, code AS part_number FROM parts LIMIT 100'
+            "SELECT group_id, brand_id AS brand, code AS part_number FROM parts WHERE code IS NOT NULL AND code != ''"
         )
         columns = [col[0] for col in ext_cursor.description]
-        rows = [dict(zip(columns, row)) for row in ext_cursor.fetchall()]
-        log(f'[SYNC] Fetched {len(rows)} part rows. Columns returned: {columns}')
 
-        if rows:
-            log(f'[SYNC] Sample row: {rows[0]}')
-
-        parts_buffer = []
         parts_total = 0
         skipped_parts = 0
-        for row in rows:
-            pn = str(row.get('part_number', '') or '').strip()
-            if not pn:
-                skipped_parts += 1
-                continue
-            parts_buffer.append(Part(
-                group_id=str(row.get('group_id', '') or ''),
-                brand=str(row.get('brand', '') or ''),
-                part_number=pn,
-            ))
-            if len(parts_buffer) >= BATCH_SIZE:
+        
+        while True:
+            chunk = ext_cursor.fetchmany(10000)
+            if not chunk:
+                break
+            
+            rows = [dict(zip(columns, row)) for row in chunk]
+            parts_buffer = []
+            
+            for row in rows:
+                pn = str(row.get('part_number', '') or '').strip()
+                if not pn:
+                    skipped_parts += 1
+                    continue
+                parts_buffer.append(Part(
+                    group_id=str(row.get('group_id', '') or ''),
+                    brand=str(row.get('brand', '') or ''),
+                    part_number=pn,
+                ))
+            
+            if parts_buffer:
                 Part.objects.bulk_create(parts_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
                 parts_total += len(parts_buffer)
-                parts_buffer = []
-        if parts_buffer:
-            Part.objects.bulk_create(parts_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
-            parts_total += len(parts_buffer)
+                _sync_state['parts_synced'] = parts_total  # Update status live
 
         log(f'[SYNC] Parts inserted: {parts_total}, skipped (empty part_number): {skipped_parts}')
         _sync_state['parts_synced'] = parts_total
@@ -704,30 +705,31 @@ def _run_sync_worker():
         cg_cols = [r[0] for r in ext_cursor.fetchall()]
         log(f'[SYNC] External car_groups columns: {cg_cols}')
 
-        log('[SYNC] Fetching 100 rows from external car_groups...')
-        ext_cursor.execute('SELECT car_id, group_id FROM car_groups LIMIT 100')
+        log('[SYNC] Fetching ALL rows from external car_groups (in chunks)...')
+        ext_cursor.execute('SELECT car_id, group_id FROM car_groups')
         columns = [col[0] for col in ext_cursor.description]
-        rows = [dict(zip(columns, row)) for row in ext_cursor.fetchall()]
-        log(f'[SYNC] Fetched {len(rows)} car_group rows.')
 
-        if rows:
-            log(f'[SYNC] Sample row: {rows[0]}')
-
-        cg_buffer = []
         cg_total = 0
-        for row in rows:
-            gid = str(row.get('group_id', '') or '')
-            ext_car_id = str(row.get('car_id', '') or '')
-            if not ext_car_id:
-                continue
-            cg_buffer.append(CarGroup(car_id=ext_car_id, group_id=gid))
-            if len(cg_buffer) >= BATCH_SIZE:
+        
+        while True:
+            chunk = ext_cursor.fetchmany(10000)
+            if not chunk:
+                break
+                
+            rows = [dict(zip(columns, row)) for row in chunk]
+            cg_buffer = []
+            
+            for row in rows:
+                gid = str(row.get('group_id', '') or '')
+                ext_car_id = str(row.get('car_id', '') or '')
+                if not ext_car_id:
+                    continue
+                cg_buffer.append(CarGroup(car_id=ext_car_id, group_id=gid))
+                
+            if cg_buffer:
                 CarGroup.objects.bulk_create(cg_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
                 cg_total += len(cg_buffer)
-                cg_buffer = []
-        if cg_buffer:
-            CarGroup.objects.bulk_create(cg_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
-            cg_total += len(cg_buffer)
+                _sync_state['car_groups_synced'] = cg_total  # Update status live
 
         log(f'[SYNC] CarGroups inserted: {cg_total}')
         _sync_state['car_groups_synced'] = cg_total
@@ -745,14 +747,10 @@ def _run_sync_worker():
 
 @login_required
 def sync_external_db_view(request):
-    """Page with the one-time external DB sync button."""
-    # Check if sync already completed (data exists)
-    already_synced = (
-        _sync_state['status'] == 'completed'
-        or (Part.objects.exists() and CarGroup.objects.exists())
-    )
-    if already_synced and _sync_state['status'] != 'running':
-        _sync_state['status'] = 'completed'
+    """Page with the external DB sync button."""
+    # Reset status if completed, so they can run it again on page load
+    if _sync_state['status'] == 'completed':
+        _sync_state['status'] = 'idle'
 
     context = {
         'active_page': 'sync_external',
@@ -768,12 +766,10 @@ def sync_external_db_view(request):
 @login_required
 @require_POST
 def trigger_sync_view(request):
-    """Trigger the one-time external DB sync (AJAX POST)."""
+    """Trigger the external DB sync (AJAX POST)."""
     with _sync_lock:
         if _sync_state['status'] == 'running':
             return JsonResponse({'ok': False, 'error': 'Sync is already running.'})
-        if _sync_state['status'] == 'completed':
-            return JsonResponse({'ok': False, 'error': 'Sync has already completed.'})
 
         _sync_state['status'] = 'running'
         _sync_state['parts_synced'] = 0
