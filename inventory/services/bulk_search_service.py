@@ -1,7 +1,7 @@
 from django.conf import settings
 import openpyxl
 
-from inventory.models import BasketItem, CarGroup, Part
+from inventory.models import BasketItem, Car, CarGroup, Part
 from inventory.services.basket_service import BasketService
 from inventory.services.part_number_utils import annotate_part_number_normalized, sanitize_part_number
 
@@ -68,13 +68,20 @@ class BulkSearchService:
             parts_by_part_num[pn].append(part)
             group_pks.add(part.group_id)
 
-        car_groups = CarGroup.objects.filter(group_id__in=group_pks).select_related('car')
+        car_groups = CarGroup.objects.filter(group_id__in=group_pks)
+
+        car_ids = set(car_groups.values_list('car_id', flat=True))
+        cars = Car.objects.filter(id__in=car_ids)
+        cars_by_car_id = {str(c.id): c for c in cars}
 
         cars_by_group_pk = {}
         for cg in car_groups:
+            car = cars_by_car_id.get(cg.car_id)
+            if not car:
+                continue
             if cg.group_id not in cars_by_group_pk:
                 cars_by_group_pk[cg.group_id] = []
-            cars_by_group_pk[cg.group_id].append(cg.car)
+            cars_by_group_pk[cg.group_id].append(car)
 
         return parts_by_part_num, cars_by_group_pk
 
