@@ -1,79 +1,113 @@
 import openpyxl
 from django.conf import settings
+from django.db import connection
 
 from inventory.models import BasketItem, Car, CarGroup, Part
 from inventory.services.basket_service import BasketService
-from inventory.services.part_number_utils import annotate_part_number_normalized, sanitize_part_number
+from inventory.services.part_number_utils import (
+    filter_parts_exact,
+    filter_parts_contains,
+    sanitize_part_number,
+)
 
 
 class PartSearchService:
+    # Maximum number of cars to return per search to avoid
+    # loading millions of rows into memory on very broad matches.
+    MAX_CARS_PER_SEARCH = 500
+
     @staticmethod
     def build_results(query):
         query = sanitize_part_number(query)
         if not query:
             return []
 
-        matching_parts = annotate_part_number_normalized(
-            Part.objects.all()
-        ).filter(part_number_norm__iexact=query)
+        # ── Step 1: Find matching parts ──────────────────────────────
+        # Try exact match first (uses B-tree index — instant).
+        matching_parts = list(filter_parts_exact(query))
 
-        if not matching_parts.exists():
-            matching_parts = annotate_part_number_normalized(
-                Part.objects.all()
-            ).filter(part_number_norm__icontains=query)
+        # Fall back to substring match only if exact match found nothing.
+        # Uses GIN trigram index — still fast on 135M rows.
+        if not matching_parts:
+            matching_parts = list(
+                filter_parts_contains(query)[:10000]  # Cap to prevent memory blow-up
+            )
 
-        group_pks = set(matching_parts.values_list('group_id', flat=True))
-        car_groups = CarGroup.objects.filter(
-            group_id__in=group_pks
+        if not matching_parts:
+            return []
+
+        # ── Step 2: Get group_ids from matching parts ────────────────
+        parts_by_group = {}
+        for part in matching_parts:
+            if part.group_id not in parts_by_group:
+                parts_by_group[part.group_id] = []
+            parts_by_group[part.group_id].append(part)
+
+        group_ids = list(parts_by_group.keys())
+
+        # ── Step 3: Fetch car_groups → cars in one efficient query ────
+        # Uses the composite index idx_cargroups_groupid_carid
+        car_groups = (
+            CarGroup.objects
+            .filter(group_id__in=group_ids)
+            .values_list('group_id', 'car_id')
+            .distinct()
         )
 
-        car_ids = set(car_groups.values_list('car_id', flat=True))
-        cars = Car.objects.filter(id__in=car_ids)
-        cars_by_car_id = {str(c.id): c for c in cars}
+        car_id_set = set()
+        group_to_car_ids = {}
+        for group_id, car_id in car_groups:
+            car_id_set.add(car_id)
+            if group_id not in group_to_car_ids:
+                group_to_car_ids[group_id] = []
+            group_to_car_ids[group_id].append(car_id)
 
-        parts_by_group_pk = {}
-        for part in matching_parts:
-            group_pk = part.group_id
-            if group_pk not in parts_by_group_pk:
-                parts_by_group_pk[group_pk] = []
-            parts_by_group_pk[group_pk].append(part)
+        if not car_id_set:
+            return []
 
+        # ── Step 4: Fetch car details ────────────────────────────────
+        cars = Car.objects.filter(car_id__in=list(car_id_set))
+        cars_by_car_id = {c.car_id: c for c in cars}
+
+        # ── Step 5: Assemble results ─────────────────────────────────
         car_data = {}
-        for cg in car_groups:
-            car = cars_by_car_id.get(cg.car_id)
-            if not car:
-                continue
-            group_pk = cg.group_id
+        for group_id, car_ids_for_group in group_to_car_ids.items():
+            parts_for_group = parts_by_group.get(group_id, [])
+            for car_id in car_ids_for_group:
+                car = cars_by_car_id.get(car_id)
+                if not car:
+                    continue
 
-            if car.id not in car_data:
-                car_data[car.id] = {
-                    'car': car,
-                    'parts': [],
-                    'part_numbers': set(),
-                }
+                if car.id not in car_data:
+                    car_data[car.id] = {
+                        'car': car,
+                        'parts': [],
+                        'part_numbers': set(),
+                    }
 
-            if group_pk in parts_by_group_pk:
-                for part in parts_by_group_pk[group_pk]:
+                for part in parts_for_group:
                     if part.part_number not in car_data[car.id]['part_numbers']:
                         car_data[car.id]['parts'].append(part)
                         car_data[car.id]['part_numbers'].add(part.part_number)
 
         results = list(car_data.values())
         results.sort(key=lambda item: item['car'].car_model or '')
-        return results
+
+        # Cap results to prevent sending huge payloads
+        return results[:PartSearchService.MAX_CARS_PER_SEARCH]
 
     @staticmethod
     def add_results_to_basket(user, results, brand, brand_number):
         brand, brand_number = BasketService.normalize_cross_brand_fields(brand, brand_number)
-        part_ids = set()
+        part_numbers = set()
         for item in results:
             for part in item['parts']:
-                part_ids.add(part.id)
+                part_numbers.add(part.part_number)
 
-        if not part_ids:
+        if not part_numbers:
             return 0
 
-        existing_keys = BasketService.existing_item_keys(user, part_ids)
+        existing_keys = BasketService.existing_item_keys(user, part_numbers)
         basket, _created = BasketService.get_or_create_basket(brand, brand_number)
 
         entries = []
@@ -83,7 +117,7 @@ class PartSearchService:
         for item in results:
             car = item['car']
             for part in item['parts']:
-                key = (car.id, part.id, basket.id)
+                key = (car.id, part.part_number, basket.id)
                 if key in existing_keys or key in pending_keys:
                     continue
                 pending_keys.add(key)

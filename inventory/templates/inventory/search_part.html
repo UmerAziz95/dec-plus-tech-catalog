@@ -232,7 +232,6 @@
                                 <th>Trans.</th>
                                 <th>Drive</th>
                                 <th>Engine</th>
-                                <th>Parameters</th>
                                 <th>Part Numbers</th>
                             </tr>
                         </thead>
@@ -242,7 +241,6 @@
                                 <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
                                 <td class="car-model-cell">
                                     <div class="car-model-text">{{ item.car.car_model|default:"—" }}</div>
-                                    <div class="car-id-text">{{ item.car.car_id }}</div>
                                 </td>
                                 <td>
                                     {% if item.car.steering %}
@@ -255,9 +253,6 @@
                                 <td>{{ item.car.wd|default:"—" }}</td>
                                 <td>
                                     <span class="engine-text">{{ item.car.engine|default:"—" }}</span>
-                                </td>
-                                <td>
-                                    <span class="params-text">{{ item.car.car_parameters|default:"—" }}</span>
                                 </td>
                                 <td class="parts-cell">
                                     {% for part in item.parts %}

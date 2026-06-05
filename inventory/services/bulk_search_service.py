@@ -3,7 +3,7 @@ import openpyxl
 
 from inventory.models import BasketItem, Car, CarGroup, Part
 from inventory.services.basket_service import BasketService
-from inventory.services.part_number_utils import annotate_part_number_normalized, sanitize_part_number
+from inventory.services.part_number_utils import sanitize_part_number
 
 
 class BulkSearchService:
@@ -55,14 +55,17 @@ class BulkSearchService:
 
     @staticmethod
     def _load_matches(part_numbers_to_search):
-        matching_parts = annotate_part_number_normalized(
-            Part.objects.all()
-        ).filter(part_number_norm__in=part_numbers_to_search)
+        # Use the stored generated column part_number_norm with B-tree index
+        matching_parts = Part.objects.extra(
+            where=["part_number_norm IN %s"],
+            params=[tuple(part_numbers_to_search)],
+        ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')
 
         parts_by_part_num = {}
         group_pks = set()
         for part in matching_parts:
-            pn = part.part_number_norm
+            # Normalize the part_number to match the search key
+            pn = sanitize_part_number(part.part_number)
             if pn not in parts_by_part_num:
                 parts_by_part_num[pn] = []
             parts_by_part_num[pn].append(part)
@@ -71,8 +74,8 @@ class BulkSearchService:
         car_groups = CarGroup.objects.filter(group_id__in=group_pks)
 
         car_ids = set(car_groups.values_list('car_id', flat=True))
-        cars = Car.objects.filter(id__in=car_ids)
-        cars_by_car_id = {str(c.id): c for c in cars}
+        cars = Car.objects.filter(car_id__in=car_ids)
+        cars_by_car_id = {str(c.car_id): c for c in cars}
 
         cars_by_group_pk = {}
         for cg in car_groups:
@@ -87,10 +90,7 @@ class BulkSearchService:
 
     @staticmethod
     def _existing_basket_keys(user, part_numbers_to_search):
-        part_ids = annotate_part_number_normalized(Part.objects.all()).filter(
-            part_number_norm__in=part_numbers_to_search,
-        ).values_list('id', flat=True)
-        return BasketService.existing_item_keys(user, part_ids)
+        return BasketService.existing_item_keys(user, part_numbers_to_search)
 
     @staticmethod
     def _build_basket_entries(user, rows_data, parts_by_part_num, cars_by_group_pk, existing_keys):
@@ -124,7 +124,7 @@ class BulkSearchService:
             basket = basket_map[(brand, brand_number)]
             for part in found_parts:
                 for car in cars_by_group_pk.get(part.group_id, []):
-                    key = (car.id, part.id, basket.id)
+                    key = (car.id, part.part_number, basket.id)
                     if key in existing_keys or key in pending_keys:
                         continue
                     pending_keys.add(key)
@@ -270,8 +270,9 @@ class BulkSearchService:
                 cars_by_group_pk,
                 existing_keys,
             )
-            matched_part_ids = annotate_part_number_normalized(Part.objects.all()).filter(
-                part_number_norm__in=part_numbers_to_search,
+            matched_part_ids = Part.objects.extra(
+                where=["part_number_norm IN %s"],
+                params=[tuple(part_numbers_to_search)],
             ).values_list('id', flat=True)
             basket_part_numbers = {
                 sanitize_part_number(part_number)

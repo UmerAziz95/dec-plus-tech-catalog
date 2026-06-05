@@ -17,7 +17,7 @@ class BasketService:
 
     @staticmethod
     def count_for_user(user):
-        return BasketItem.objects.filter(user=user).count()
+        return BasketService.get_items_queryset(user).count()
 
     @staticmethod
     def get_or_create_basket(brand, brand_number):
@@ -29,9 +29,18 @@ class BasketService:
 
     @staticmethod
     def get_items_queryset(user):
+        """Return basket items with duplicates consolidated.
+        Uses PostgreSQL DISTINCT ON to keep only one row per unique
+        (brand, brand_number, part_number, car_model) combination."""
         return BasketItem.objects.filter(
             user=user,
-        ).select_related('basket', 'car', 'part').order_by('-id')
+        ).select_related('basket', 'car', 'part').order_by(
+            'basket__brand', 'basket__brand_number',
+            'part__part_number', 'car__car_model', '-id',
+        ).distinct(
+            'basket__brand', 'basket__brand_number',
+            'part__part_number', 'car__car_model',
+        )
 
     @staticmethod
     def clean_search_query(value):
@@ -86,8 +95,16 @@ class BasketService:
 
     @staticmethod
     def remove_item(item):
+        """Remove an item and all its hidden duplicates sharing the same
+        brand, brand_number, part_number, and car_model."""
         basket_id = item.basket_id
-        item.delete()
+        # Delete all underlying copies of this consolidated row
+        BasketItem.objects.filter(
+            user=item.user,
+            basket_id=item.basket_id,
+            part__part_number=item.part.part_number,
+            car__car_model=item.car.car_model,
+        ).delete()
         if not BasketItem.objects.filter(basket_id=basket_id).exists():
             Basket.objects.filter(pk=basket_id).delete()
 
@@ -134,7 +151,8 @@ class BasketService:
         sheet = workbook.active
         sheet.title = 'Basket'
         sheet.append(['Cross Brand', 'Cross Code', 'OE Number', 'Car Model'])
-        for item in BasketService.get_items_queryset(user).iterator():
+        # Use the consolidated queryset so export matches what the user sees
+        for item in BasketService.get_items_queryset(user):
             sheet.append([
                 item.basket.brand,
                 item.basket.brand_number,
@@ -153,13 +171,13 @@ class BasketService:
         return basket_map
 
     @staticmethod
-    def existing_item_keys(user, part_ids):
+    def existing_item_keys(user, part_numbers):
         return {
-            (car_id, part_id, basket_id)
-            for car_id, part_id, basket_id in BasketItem.objects.filter(
+            (car_id, part_number, basket_id)
+            for car_id, part_number, basket_id in BasketItem.objects.filter(
                 user=user,
-                part_id__in=part_ids,
-            ).values_list('car_id', 'part_id', 'basket_id')
+                part__part_number__in=part_numbers,
+            ).values_list('car_id', 'part__part_number', 'basket_id')
         }
 
     @staticmethod
@@ -169,18 +187,28 @@ class BasketService:
             .values_list('basket_id', flat=True)
             .distinct()
         )
-        return list(
+        baskets = list(
             Basket.objects.filter(pk__in=basket_ids)
-            .annotate(item_count=Count('items', filter=Q(items__user=user)))
             .order_by('brand', 'brand_number')
         )
+        # Attach consolidated item counts using the grouped queryset
+        for basket in baskets:
+            basket.item_count = BasketService.get_group_items_queryset(user, basket.pk).count()
+        return baskets
 
     @staticmethod
     def get_group_items_queryset(user, basket_id):
+        """Return group items with duplicates consolidated.
+        Uses PostgreSQL DISTINCT ON to keep only one row per unique
+        (part_number, car_model) combination within a basket group."""
         return BasketItem.objects.filter(
             user=user,
             basket_id=basket_id,
-        ).select_related('basket', 'car', 'part').order_by('-id')
+        ).select_related('basket', 'car', 'part').order_by(
+            'part__part_number', 'car__car_model', '-id',
+        ).distinct(
+            'part__part_number', 'car__car_model',
+        )
 
     @staticmethod
     def filter_group_items_queryset(user, basket_id, query):

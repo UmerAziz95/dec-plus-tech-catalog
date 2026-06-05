@@ -7,28 +7,28 @@ class Car(models.Model):
     Stores car/vehicle information imported from the 'CarId' sheet.
     Each car has a unique car_id (e.g., MIT1000001).
     """
-    car_id = models.CharField(
-        max_length=50, unique=True, db_index=True,
+    car_id = models.TextField(
+        unique=True, db_index=True,
         help_text="Unique car identifier from Excel (e.g., MIT1000001)"
     )
-    car_model = models.CharField(
-        max_length=500, blank=True,
+    car_model = models.TextField(
+        blank=True,
         help_text="Full car model string (e.g., MITSUBISHI 3000GT Z16A [MJGFL6] 1990-2000)"
     )
-    steering = models.CharField(
-        max_length=50, blank=True,
+    steering = models.TextField(
+        blank=True,
         help_text="Steering type (e.g., LHD, RHD)"
     )
-    transmission = models.CharField(
-        max_length=50, blank=True,
+    transmission = models.TextField(
+        blank=True,
         help_text="Transmission type (e.g., MT, AT)"
     )
-    wd = models.CharField(
-        max_length=50, blank=True,
+    wd = models.TextField(
+        blank=True,
         help_text="Wheel drive type (e.g., 2WD, 4WD)"
     )
-    engine = models.CharField(
-        max_length=255, blank=True,
+    engine = models.TextField(
+        blank=True,
         help_text="Engine specification"
     )
     car_parameters = models.TextField(
@@ -46,7 +46,6 @@ class Car(models.Model):
 
     class Meta:
         db_table = 'cars'
-        ordering = ['car_id']
         verbose_name = 'Car'
         verbose_name_plural = 'Cars'
 
@@ -92,8 +91,8 @@ class Part(models.Model):
         default='',
         help_text="The group ID this part belongs to"
     )
-    brand = models.CharField(
-        max_length=255, blank=True,
+    brand = models.TextField(
+        blank=True,
         help_text="Brand name (e.g., Mitsubishi)"
     )
     part_number = models.TextField(
@@ -106,9 +105,7 @@ class Part(models.Model):
 
     class Meta:
         db_table = 'parts'
-        ordering = ['part_number']
         indexes = [
-            models.Index(fields=['part_number'], name='idx_part_number'),
             models.Index(fields=['group_id', 'part_number'], name='idx_group_part'),
         ]
         verbose_name = 'Part'
@@ -119,12 +116,10 @@ class Part(models.Model):
 
 
 class Basket(models.Model):
-    brand = models.CharField(
-        max_length=255,
+    brand = models.TextField(
         help_text="Cross-reference brand name (e.g., Kanoya)",
     )
-    brand_number = models.CharField(
-        max_length=255,
+    brand_number = models.TextField(
         blank=True,
         help_text="Cross-reference brand part number (e.g., C13X20)",
     )
@@ -168,8 +163,7 @@ class BasketItem(models.Model):
         on_delete=models.CASCADE,
         related_name='basket_items',
     )
-    group_id = models.CharField(
-        max_length=50,
+    group_id = models.TextField(
         db_index=True,
         blank=True,
         default='',
@@ -230,11 +224,11 @@ class ImportBatch(models.Model):
         blank=True,
         related_name='import_batches'
     )
-    original_file_name = models.CharField(max_length=255)
+    original_file_name = models.TextField()
     import_type = models.CharField(max_length=20, choices=IMPORT_TYPE_CHOICES, default=TYPE_CARS)
     stored_file_path = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
-    progress_note = models.CharField(max_length=255, blank=True)
+    progress_note = models.TextField(blank=True)
     failure_reason = models.TextField(blank=True)
     total_rows = models.PositiveIntegerField(default=0)
     cars_count = models.PositiveIntegerField(default=0)
@@ -283,7 +277,7 @@ class ImportRowError(models.Model):
         on_delete=models.CASCADE,
         related_name='row_errors'
     )
-    sheet_name = models.CharField(max_length=120)
+    sheet_name = models.TextField()
     row_number = models.PositiveIntegerField()
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)

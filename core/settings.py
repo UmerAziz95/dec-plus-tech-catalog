@@ -96,9 +96,11 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('DB_NAME', 'first_django_db'),
         'USER': os.environ.get('DB_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', '5dsolutions'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'root123'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
         'PORT': os.environ.get('DB_PORT', '5432'),
+        'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '600')),
+        'CONN_HEALTH_CHECKS': True,
     },
     # External database for one-time data sync (provide creds via env vars or .env)
     'external': {

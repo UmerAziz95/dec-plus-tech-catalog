@@ -61,13 +61,23 @@ def _redirect_to_basket_group(request, user, basket_id):
     return redirect(url)
 
 
+def _get_approx_count(table_name):
+    from django.db import connection
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = %s", [table_name])
+        row = cursor.fetchone()
+        if row and row[0] > 0:
+            return row[0]
+    return 0
+
+
 @login_required
 def dashboard_view(request):
     """Main dashboard with database statistics."""
     context = {
         'active_page': 'dashboard',
-        'total_cars': Car.objects.count(),
-        'total_parts': Part.objects.count(),
+        'total_cars': _get_approx_count('cars'),
+        'total_parts': _get_approx_count('parts'),
         'basket_count': BasketService.count_for_user(request.user),
     }
     return render(request, 'inventory/dashboard.html', context)
