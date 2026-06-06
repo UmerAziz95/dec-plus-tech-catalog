@@ -12,10 +12,7 @@ from inventory.services.part_number_utils import (
 
 
 class PartSearchService:
-    # Maximum number of cars to return per search to avoid
     # loading millions of rows into memory on very broad matches.
-    MAX_CARS_PER_SEARCH = 500
-
     @staticmethod
     def build_results(query):
         query = sanitize_part_number(query)
@@ -93,8 +90,8 @@ class PartSearchService:
         results = list(car_data.values())
         results.sort(key=lambda item: item['car'].car_model or '')
 
-        # Cap results to prevent sending huge payloads
-        return results[:PartSearchService.MAX_CARS_PER_SEARCH]
+        # Return all results without capping
+        return results
 
     @staticmethod
     def add_results_to_basket(user, results, brand, brand_number):
