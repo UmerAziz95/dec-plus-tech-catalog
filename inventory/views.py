@@ -71,6 +71,44 @@ def _get_approx_count(table_name):
     return 0
 
 
+def _get_unmapped_table_stats():
+    """
+    Discover any DB tables that aren't backed by a registered Django model
+    (e.g. tables created by an external sync or manual import) and report
+    their approximate row counts, so the dashboard can surface them without
+    code changes each time a new table shows up.
+    """
+    from django.apps import apps
+    from django.db import connection
+
+    # include_auto_created picks up Django's M2M "through" tables (e.g.
+    # accounts_user_groups); django_migrations is managed outside the app
+    # registry entirely, so it's excluded explicitly.
+    known_tables = {model._meta.db_table for model in apps.get_models(include_auto_created=True)}
+    known_tables.add('django_migrations')
+
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT c.relname, c.reltuples::bigint
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+            ORDER BY c.relname
+        """)
+        rows = cursor.fetchall()
+
+    extra_tables = []
+    for table_name, approx_count in rows:
+        if table_name in known_tables:
+            continue
+        extra_tables.append({
+            'table_name': table_name,
+            'label': table_name.replace('_', ' ').title(),
+            'count': max(approx_count, 0),
+        })
+    return extra_tables
+
+
 @login_required
 def dashboard_view(request):
     """Main dashboard with database statistics."""
@@ -79,6 +117,7 @@ def dashboard_view(request):
         'total_cars': _get_approx_count('cars'),
         'total_parts': _get_approx_count('parts'),
         'basket_count': BasketService.count_for_user(request.user),
+        'extra_tables': _get_unmapped_table_stats(),
     }
     return render(request, 'inventory/dashboard.html', context)
 

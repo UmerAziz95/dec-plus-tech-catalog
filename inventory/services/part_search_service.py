@@ -63,8 +63,10 @@ class PartSearchService:
             return []
 
         # ── Step 4: Fetch car details ────────────────────────────────
-        cars = Car.objects.filter(car_id__in=list(car_id_set))
-        cars_by_car_id = {c.car_id: c for c in cars}
+        # CarGroup.car_id actually stores the Car primary key (as text),
+        # not the business Car.car_id string — filter/lookup by pk.
+        cars = Car.objects.filter(id__in=list(car_id_set))
+        cars_by_car_id = {str(c.id): c for c in cars}
 
         # ── Step 5: Assemble results ─────────────────────────────────
         car_data = {}

@@ -519,6 +519,7 @@ button { font-family: var(--font); }
 .stat-icon-box.green  { background: rgba(16, 185, 129, 0.12);  color: #34d399; }
 .stat-icon-box.amber  { background: rgba(245, 158, 11, 0.12);  color: #fbbf24; }
 .stat-icon-box.pink   { background: rgba(236, 72, 153, 0.12);  color: #f472b6; }
+.stat-icon-box.gray   { background: rgba(148, 163, 184, 0.12); color: #94a3b8; }
 
 .stat-content { flex: 1; }
 
