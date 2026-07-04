@@ -118,6 +118,12 @@ def dashboard_view(request):
         'total_parts': _get_approx_count('parts'),
         'basket_count': BasketService.count_for_user(request.user),
         'extra_tables': _get_unmapped_table_stats(),
+        # Cross Code mirrors Cross Car's stats, but reads from the
+        # Cross Code counterpart tables. Those tables don't exist yet, so
+        # _get_approx_count naturally returns 0 until they're created.
+        'total_cars_crosscode': _get_approx_count('cars_crosscode'),
+        'total_parts_crosscode': _get_approx_count('parts_crosscode'),
+        'basket_count_crosscode': _get_approx_count('basket_items_crosscode'),
     }
     return render(request, 'inventory/dashboard.html', context)
 
@@ -156,6 +162,7 @@ def import_data_view(request):
         'cars_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CARS).order_by('-created_at')[:history_limit],
         'groups_import_history': user_batches.filter(import_type=ImportBatch.TYPE_GROUPS).order_by('-created_at')[:history_limit],
         'parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_PARTS).order_by('-created_at')[:history_limit],
+        'car_with_parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CAR_WITH_PARTS).order_by('-created_at')[:history_limit],
         'basket_count': BasketService.count_for_user(request.user),
         'max_upload_size_bytes': getattr(settings, 'IMPORT_MAX_UPLOAD_SIZE_BYTES', 5 * 1024 * 1024 * 1024),
         'max_upload_size_gb': getattr(settings, 'IMPORT_MAX_UPLOAD_SIZE_GB', 5),
@@ -190,6 +197,32 @@ def import_history_view(request):
         'poll_active': poll_active,
         'poll': any(poll_active.values()),
     })
+
+
+@login_required
+@require_POST
+def import_batch_delete_view(request, batch_id):
+    batch = get_object_or_404(ImportBatch, pk=batch_id, uploaded_by=request.user)
+
+    if batch.status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING):
+        messages.error(request, 'This import is still running — wait for it to finish before deleting.')
+        return redirect('inventory:import_data')
+
+    # Only rows this batch actually created carry its import_batch stamp
+    # (rows it merely updated/reused, e.g. an existing car, are left alone).
+    # Batches imported before this tracking existed have no stamped rows,
+    # so deleting them removes the history entry but no data.
+    cars_deleted, _ = Car.objects.filter(import_batch=batch).delete()
+    groups_deleted, _ = CarGroup.objects.filter(import_batch=batch).delete()
+    parts_deleted, _ = Part.objects.filter(import_batch=batch).delete()
+    batch.delete()
+
+    messages.success(
+        request,
+        f'Deleted import "{batch.original_file_name}": removed {cars_deleted} car(s), '
+        f'{groups_deleted} group link(s), {parts_deleted} part(s).',
+    )
+    return redirect('inventory:import_data')
 
 
 @login_required
@@ -303,6 +336,17 @@ def search_part_view(request):
         'basket_count': BasketService.count_for_user(request.user),
     }
     return render(request, 'inventory/search_part.html', context)
+
+
+@login_required
+def bulk_search_sample_export_view(request):
+    workbook = BulkSearchService.build_sample_workbook()
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = 'attachment; filename="bulk_search_sample.xlsx"'
+    workbook.save(response)
+    return response
 
 
 @login_required

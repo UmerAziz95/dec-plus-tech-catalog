@@ -41,6 +41,14 @@ class Car(models.Model):
     )
     metadata_json = models.JSONField(default=dict, blank=True)
 
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_cars',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -68,6 +76,14 @@ class CarGroup(models.Model):
         db_index=True,
         default='',
         help_text="The group ID from Excel (e.g., MIT1147463)"
+    )
+
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_car_groups',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
     )
 
     class Meta:
@@ -98,6 +114,14 @@ class Part(models.Model):
     part_number = models.TextField(
         db_index=True,
         help_text="Part number - primary search field (e.g., MQ900871)"
+    )
+
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_parts',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -211,10 +235,12 @@ class ImportBatch(models.Model):
     TYPE_CARS = 'cars'
     TYPE_GROUPS = 'groups'
     TYPE_PARTS = 'parts'
+    TYPE_CAR_WITH_PARTS = 'car_with_parts'
     IMPORT_TYPE_CHOICES = [
         (TYPE_CARS, 'Car models'),
         (TYPE_GROUPS, 'Groups and links'),
         (TYPE_PARTS, 'Part numbers'),
+        (TYPE_CAR_WITH_PARTS, 'Car with parts'),
     ]
 
     uploaded_by = models.ForeignKey(
@@ -263,6 +289,11 @@ class ImportBatch(models.Model):
                 stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} imported')
             if self.groups_count:
                 stats.append(f'{self.groups_count:,} group{"s" if self.groups_count != 1 else ""} created')
+        elif self.import_type == self.TYPE_CAR_WITH_PARTS:
+            if self.cars_count:
+                stats.append(f'{self.cars_count:,} car{"s" if self.cars_count != 1 else ""} added')
+            if self.parts_count:
+                stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} added')
         if self.error_count:
             label = 'warnings' if self.status == self.STATUS_COMPLETED else 'issues'
             stats.append(f'{self.error_count:,} {label}')

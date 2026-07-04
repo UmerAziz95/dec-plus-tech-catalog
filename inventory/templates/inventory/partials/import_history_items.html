@@ -29,6 +29,12 @@
         {% elif batch.completed_at and batch.status == 'completed' %}
         <p class="import-history-finished">Finished {{ batch.completed_at|date:"M j, Y" }} · {{ batch.completed_at|time:"g:i A" }}</p>
         {% endif %}
+        {% if batch.status == 'completed' or batch.status == 'failed' %}
+        <form method="post" action="{% url 'inventory:import_batch_delete' batch.id %}" class="inline-form" data-confirm="Delete this import? This removes all cars, groups, and parts it added." data-confirm-title="Delete import" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger btn-sm import-history-delete-btn">Delete</button>
+        </form>
+        {% endif %}
     </li>
     {% endfor %}
 </ul>

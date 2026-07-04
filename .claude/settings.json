@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node shot_delete_test.js)"
+    ]
+  }
+}

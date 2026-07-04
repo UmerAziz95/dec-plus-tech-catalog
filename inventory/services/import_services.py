@@ -42,6 +42,13 @@ class ExcelImportService:
     cars_sheet_aliases = ['cars', 'carid']
     groups_sheet_aliases = ['groups', 'carid & groupid']
     parts_sheet_aliases = ['parts', 'groupid & part_number']
+    car_with_parts_sheet_aliases = ['car with parts', 'car_with_parts', 'cars and parts', 'cars & parts']
+
+    # Cars added via the "Car with parts" flow don't come with real group
+    # data, so each car gets one dedicated group (keyed off its own pk) to
+    # hang its parts on. Re-running the import for the same car reuses this
+    # group instead of creating a new one each time.
+    CAR_WITH_PARTS_GROUP_PREFIX = 'CWP'
 
     cars_headers_map = {
         'car_id': ['carid', 'car_id'],
@@ -123,6 +130,8 @@ class ExcelImportService:
                 service._run_groups_import(batch, workbook, sheet_map, batch_size)
             elif batch.import_type == ImportBatch.TYPE_PARTS:
                 service._run_parts_import(batch, workbook, sheet_map, batch_size)
+            elif batch.import_type == ImportBatch.TYPE_CAR_WITH_PARTS:
+                service._run_car_with_parts_import(batch, workbook, sheet_map, batch_size)
             else:
                 service._add_error('Workbook', 0, 'Unsupported import type.')
                 service._finalize_failed(batch)
@@ -221,6 +230,127 @@ class ExcelImportService:
             links_count=0,
             parts_count=len(parsed['parts']),
         )
+
+    def _run_car_with_parts_import(self, batch, workbook, sheet_map, batch_size):
+        sheet_name = self._resolve_sheet(sheet_map, self.car_with_parts_sheet_aliases, workbook)
+        if not sheet_name:
+            self._add_error('Workbook', 0, 'No worksheet found in the uploaded file.')
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Parsing cars and parts…')
+        parsed = self._parse_car_with_parts_sheet(workbook[sheet_name], sheet_name)
+        if self.errors:
+            self._finalize_failed(batch)
+            return
+
+        if not parsed['rows']:
+            self._add_error(
+                sheet_name, 0,
+                'No valid rows found. Expected column A = car name, column B = part number.',
+            )
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Saving cars…')
+        cars_created, car_lookup = self._upsert_car_with_parts_cars(parsed['car_names'], batch, batch_size)
+
+        self._update_progress(batch, 'Linking cars to their parts group…')
+        group_by_car_name = {}
+        links_created = self._upsert_car_with_parts_groups(car_lookup, group_by_car_name, batch, batch_size)
+
+        self._update_progress(batch, 'Saving parts…')
+        parts_created = self._upsert_car_with_parts_parts(parsed['rows'], group_by_car_name, batch, batch_size)
+
+        self._finalize_completed(
+            batch,
+            total_rows=parsed['total_rows'],
+            cars_count=cars_created,
+            groups_count=len(group_by_car_name),
+            links_count=links_created,
+            parts_count=parts_created,
+        )
+
+    def _parse_car_with_parts_sheet(self, sheet, sheet_name):
+        rows = []
+        car_names = set()
+        total_rows = 0
+        for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            car_name = self._sanitize_text(row[0] if len(row) > 0 else '')
+            part_number = self._sanitize_text(row[1] if len(row) > 1 else '')
+            if not car_name and not part_number:
+                continue
+            if not car_name or not part_number:
+                self._add_error(sheet_name, row_number, 'Both car name and part number are required.')
+                continue
+            if car_name is None or part_number is None:
+                self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
+                continue
+            rows.append((car_name, part_number))
+            car_names.add(car_name)
+            total_rows += 1
+
+        return {'rows': rows, 'car_names': car_names, 'total_rows': total_rows}
+
+    def _upsert_car_with_parts_cars(self, car_names, batch, bs):
+        # Duplicate handling: a car name that already exists is reused as-is
+        # (no fields overwritten) — only genuinely new car names get created.
+        car_names_list = list(car_names)
+        existing = set(Car.objects.filter(car_id__in=car_names_list).values_list('car_id', flat=True))
+        to_create = [
+            Car(car_id=name, car_model=name, import_batch=batch)
+            for name in car_names_list if name not in existing
+        ]
+        for start in range(0, len(to_create), bs):
+            Car.objects.bulk_create(to_create[start:start + bs], batch_size=bs, ignore_conflicts=True)
+        car_lookup = dict(Car.objects.filter(car_id__in=car_names_list).values_list('car_id', 'id'))
+        return len(to_create), car_lookup
+
+    def _upsert_car_with_parts_groups(self, car_lookup, group_by_car_name, batch, bs):
+        car_pks = list(car_lookup.values())
+        # CarGroup.car_id is a TextField, so values_list comes back as str —
+        # compare against str(car_pk), not the raw int, or every link looks
+        # "new" and gets recounted (bulk_create's ignore_conflicts keeps the
+        # DB correct either way, but links_count would over-report).
+        existing_links = set(CarGroup.objects.filter(car_id__in=car_pks).values_list('car_id', 'group_id'))
+        to_create = []
+        for car_name, car_pk in car_lookup.items():
+            group_id = f'{self.CAR_WITH_PARTS_GROUP_PREFIX}{car_pk}'
+            group_by_car_name[car_name] = group_id
+            if (str(car_pk), group_id) not in existing_links:
+                to_create.append(CarGroup(car_id=car_pk, group_id=group_id, import_batch=batch))
+        for start in range(0, len(to_create), bs):
+            CarGroup.objects.bulk_create(to_create[start:start + bs], batch_size=bs, ignore_conflicts=True)
+        return len(to_create)
+
+    def _upsert_car_with_parts_parts(self, rows, group_by_car_name, batch, bs):
+        resolved = [
+            (group_by_car_name[car_name], part_number)
+            for car_name, part_number in rows
+            if car_name in group_by_car_name
+        ]
+        total = len(resolved)
+        created_count = 0
+        for start in range(0, total, bs):
+            chunk = resolved[start:start + bs]
+            self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
+            group_ids = {group_id for group_id, _ in chunk}
+            part_nums = {part_number for _, part_number in chunk}
+            existing = set(
+                Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
+            )
+            to_create = []
+            for group_id, part_number in chunk:
+                key = (group_id, part_number)
+                if key in existing:
+                    continue
+                existing.add(key)
+                to_create.append(Part(group_id=group_id, brand='', part_number=part_number, import_batch=batch))
+            if to_create:
+                with transaction.atomic():
+                    Part.objects.bulk_create(to_create, batch_size=bs)
+                created_count += len(to_create)
+        return created_count
 
     def _update_progress(self, batch, note):
         ImportBatch.objects.filter(pk=batch.id).update(progress_note=note[:255], updated_at=timezone.now())
@@ -374,6 +504,7 @@ class ExcelImportService:
                         car_parameters=row['car_parameters'],
                         additional_note=row['additional_note'],
                         metadata_json=row['metadata_json'],
+                        import_batch=batch,
                     ))
             with transaction.atomic():
                 if to_create:
@@ -400,7 +531,7 @@ class ExcelImportService:
                 if not car_pk:
                     self._add_error('Groups', 0, f'Unknown relation {car_id} -> {group_id}')
                     continue
-                objects.append(CarGroup(car_id=car_pk, group_id=group_id))
+                objects.append(CarGroup(car_id=car_pk, group_id=group_id, import_batch=batch))
             if not objects:
                 continue
             with transaction.atomic():
@@ -432,7 +563,7 @@ class ExcelImportService:
                 if key in existing:
                     continue
                 existing.add(key)
-                to_create.append(Part(group_id=group_id, brand=brand, part_number=part_number))
+                to_create.append(Part(group_id=group_id, brand=brand, part_number=part_number, import_batch=batch))
             if to_create:
                 with transaction.atomic():
                     Part.objects.bulk_create(to_create, batch_size=bs)

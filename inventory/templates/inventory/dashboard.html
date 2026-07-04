@@ -6,53 +6,6 @@
 
 {% block content %}
 <div class="fade-in">
-    <!-- Stats Row -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon-box purple">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M5 17H3v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2m-4 0H9m-6-6h15m-6 0V6"/></svg>
-            </div>
-            <div class="stat-content">
-                <div class="stat-label">Total Cars</div>
-                <div class="stat-value">{{ total_cars|default:"0" }}</div>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon-box blue">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            </div>
-            <div class="stat-content">
-                <div class="stat-label">Total Parts</div>
-                <div class="stat-value">{{ total_parts|default:"0" }}</div>
-            </div>
-        </div>
-
-
-
-        <div class="stat-card">
-            <div class="stat-icon-box amber">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
-            </div>
-            <div class="stat-content">
-                <div class="stat-label">Basket Items</div>
-                <div class="stat-value">{{ basket_count|default:"0" }}</div>
-            </div>
-        </div>
-
-        {% for table in extra_tables %}
-        <div class="stat-card">
-            <div class="stat-icon-box gray">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
-            </div>
-            <div class="stat-content">
-                <div class="stat-label">{{ table.label }}</div>
-                <div class="stat-value">{{ table.count|default:"0" }}</div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
     <!-- Welcome Card -->
     <div class="card" style="margin-bottom: var(--space-xl);">
         <div class="card-header">
@@ -61,6 +14,52 @@
                 <p class="card-subtitle">Here's an overview of your car parts database.</p>
             </div>
         </div>
+        <span class="section-heading" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
+
+        <div class="stats-grid" style="margin-bottom: var(--space-lg);">
+            <div class="stat-card">
+                <div class="stat-icon-box purple">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M5 17H3v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2m-4 0H9m-6-6h15m-6 0V6"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Cars</div>
+                    <div class="stat-value">{{ total_cars|default:"0" }}</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon-box blue">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Parts</div>
+                    <div class="stat-value">{{ total_parts|default:"0" }}</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon-box amber">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Basket Items</div>
+                    <div class="stat-value">{{ basket_count|default:"0" }}</div>
+                </div>
+            </div>
+
+            {% for table in extra_tables %}
+            <div class="stat-card">
+                <div class="stat-icon-box gray">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">{{ table.label }}</div>
+                    <div class="stat-value">{{ table.count|default:"0" }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-lg);">
             <a href="{% url 'inventory:search_part' %}" class="card" style="text-align: center; cursor: pointer;">
                 <div style="color: var(--accent-light); margin-bottom: var(--space-sm);">
@@ -106,6 +105,78 @@
                 <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">One-time import from external DB</div>
             </a>
             -->
+        </div>
+
+        <span class="section-heading" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
+
+        <div class="stats-grid" style="margin-bottom: var(--space-lg);">
+            <div class="stat-card">
+                <div class="stat-icon-box purple">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M5 17H3v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2m-4 0H9m-6-6h15m-6 0V6"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Cars</div>
+                    <div class="stat-value">{{ total_cars_crosscode|default:"0" }}</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon-box blue">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Total Parts</div>
+                    <div class="stat-value">{{ total_parts_crosscode|default:"0" }}</div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon-box amber">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-label">Basket Items</div>
+                    <div class="stat-value">{{ basket_count_crosscode|default:"0" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-lg);">
+            <a href="#" class="card disabled-action" style="text-align: center;">
+                <div style="color: var(--accent-light); margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Search Parts Number</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Find cars by part number</div>
+            </a>
+            <a href="#" class="card disabled-action" style="text-align: center;">
+                <div style="color: #fbbf24; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Basket</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Manage brand assignments</div>
+            </a>
+            <a href="#" class="card disabled-action" style="text-align: center;">
+                <div style="color: var(--accent); margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Edit Parts Numbers</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Manage part number records</div>
+            </a>
+            <a href="#" class="card disabled-action" style="text-align: center;">
+                <div style="color: #34d399; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Brand Names</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Manage brand records</div>
+            </a>
+            <a href="#" class="card disabled-action" style="text-align: center;">
+                <div style="color: #60a5fa; margin-bottom: var(--space-sm);">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <div style="font-weight: 600; font-size: var(--font-sm);">Import Data</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Upload Cars, Groups and Parts</div>
+            </a>
         </div>
     </div>
 </div>

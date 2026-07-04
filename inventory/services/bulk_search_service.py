@@ -55,10 +55,13 @@ class BulkSearchService:
 
     @staticmethod
     def _load_matches(part_numbers_to_search):
-        # Use the stored generated column part_number_norm with B-tree index
+        # Use the stored generated column part_number_norm with B-tree index.
+        # psycopg3 doesn't auto-expand a tuple param into "(a, b, c)" for
+        # "IN %s" the way psycopg2 did, so build explicit placeholders.
+        placeholders = ', '.join(['%s'] * len(part_numbers_to_search))
         matching_parts = Part.objects.extra(
-            where=["part_number_norm IN %s"],
-            params=[tuple(part_numbers_to_search)],
+            where=[f"part_number_norm IN ({placeholders})"],
+            params=list(part_numbers_to_search),
         ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')
 
         parts_by_part_num = {}
@@ -73,9 +76,11 @@ class BulkSearchService:
 
         car_groups = CarGroup.objects.filter(group_id__in=group_pks)
 
-        car_ids = set(car_groups.values_list('car_id', flat=True))
-        cars = Car.objects.filter(car_id__in=car_ids)
-        cars_by_car_id = {str(c.car_id): c for c in cars}
+        # CarGroup.car_id actually stores the Car primary key (as text),
+        # not the business Car.car_id string — filter/lookup by pk.
+        car_pks = set(car_groups.values_list('car_id', flat=True))
+        cars = Car.objects.filter(id__in=car_pks)
+        cars_by_car_id = {str(c.id): c for c in cars}
 
         cars_by_group_pk = {}
         for cg in car_groups:
@@ -270,9 +275,10 @@ class BulkSearchService:
                 cars_by_group_pk,
                 existing_keys,
             )
+            placeholders = ', '.join(['%s'] * len(part_numbers_to_search))
             matched_part_ids = Part.objects.extra(
-                where=["part_number_norm IN %s"],
-                params=[tuple(part_numbers_to_search)],
+                where=[f"part_number_norm IN ({placeholders})"],
+                params=list(part_numbers_to_search),
             ).values_list('id', flat=True)
             basket_part_numbers = {
                 sanitize_part_number(part_number)
@@ -303,6 +309,15 @@ class BulkSearchService:
             return None, False, None, error_message
         results, summary, err = cls.run_bulk_search(user, rows_data, save_to_basket=True)
         return results, True, summary, err
+
+    @staticmethod
+    def build_sample_workbook():
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Bulk search sample'
+        sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
+        sheet.append(['AISIN', 'AS-12345', '3231A047'])
+        return workbook
 
     @staticmethod
     def build_missed_workbook(missed_rows):
