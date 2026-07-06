@@ -67,43 +67,36 @@
                     <span class="nav-text">Basket</span>
                     {% if basket_count %}<span class="nav-badge">{{ basket_count }}</span>{% endif %}
                 </a>
-                <!--
-                <a href="{% url 'inventory:sync_external' %}" class="nav-link {% if active_page == 'sync_external' %}active{% endif %}" id="nav-sync-external">
-                    <span class="nav-icon">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
-                    </span>
-                    <span class="nav-text">Sync External DB</span>
-                </a>
-                -->
             </div>
 
             <div class="nav-section">
                 <span class="nav-section-title">Cross Code</span>
-                <a href="#" class="nav-link disabled" id="nav-cross-code-search-part">
+                <a href="{% url 'inventory:search_part_crosscode' %}" class="nav-link {% if active_page == 'search_part_crosscode' %}active{% endif %}" id="nav-cross-code-search-part">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                     </span>
                     <span class="nav-text">Search Parts Number</span>
                 </a>
-                <a href="#" class="nav-link disabled" id="nav-cross-code-basket">
+                <a href="{% url 'inventory:basket_crosscode' %}" class="nav-link {% if active_page == 'basket_crosscode' %}active{% endif %}" id="nav-cross-code-basket">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
                     </span>
                     <span class="nav-text">Basket</span>
+                    {% if basket_count_crosscode %}<span class="nav-badge">{{ basket_count_crosscode }}</span>{% endif %}
                 </a>
-                <a href="#" class="nav-link disabled" id="nav-cross-code-edit-parts">
+                <a href="{% url 'inventory:parts_catalog_crosscode' %}" class="nav-link {% if active_page == 'parts_catalog_crosscode' %}active{% endif %}" id="nav-cross-code-edit-parts">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                     </span>
                     <span class="nav-text">Edit Parts Numbers</span>
                 </a>
-                <a href="#" class="nav-link disabled" id="nav-cross-code-brand-names">
+                <a href="{% url 'inventory:brand_names_crosscode' %}" class="nav-link {% if active_page == 'brand_names_crosscode' %}active{% endif %}" id="nav-cross-code-brand-names">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
                     </span>
                     <span class="nav-text">Brand Names</span>
                 </a>
-                <a href="#" class="nav-link disabled" id="nav-cross-code-import-data">
+                <a href="{% url 'inventory:import_data' %}" class="nav-link {% if active_page == 'import_data' %}active{% endif %}" id="nav-cross-code-import-data">
                     <span class="nav-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </span>

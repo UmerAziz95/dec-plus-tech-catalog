@@ -3,36 +3,38 @@ import re
 import openpyxl
 from django.db.models import Count, Q
 
-from inventory.models import Basket, BasketItem
+from inventory.models import Basket, BasketCrossCode, BasketItem, BasketItemCrossCode
 
 _TAG_RE = re.compile(r'<[^>]+>')
 
 
 class BasketService:
     BASKET_PAGE_SIZE = 20
+    basket_model = Basket
+    basket_item_model = BasketItem
 
     @staticmethod
     def normalize_cross_brand_fields(brand, brand_number):
         return (brand or '').strip(), (brand_number or '').strip()
 
-    @staticmethod
-    def count_for_user(user):
-        return BasketService.get_items_queryset(user).count()
+    @classmethod
+    def count_for_user(cls, user):
+        return cls.get_items_queryset(user).count()
 
-    @staticmethod
-    def get_or_create_basket(brand, brand_number):
-        brand, brand_number = BasketService.normalize_cross_brand_fields(brand, brand_number)
-        return Basket.objects.get_or_create(
+    @classmethod
+    def get_or_create_basket(cls, brand, brand_number):
+        brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
+        return cls.basket_model.objects.get_or_create(
             brand=brand,
             brand_number=brand_number,
         )
 
-    @staticmethod
-    def get_items_queryset(user):
+    @classmethod
+    def get_items_queryset(cls, user):
         """Return basket items with duplicates consolidated.
         Uses PostgreSQL DISTINCT ON to keep only one row per unique
         (brand, brand_number, part_number, car_model) combination."""
-        return BasketItem.objects.filter(
+        return cls.basket_item_model.objects.filter(
             user=user,
         ).select_related('basket', 'car', 'part').order_by(
             'basket__brand', 'basket__brand_number',
@@ -47,10 +49,10 @@ class BasketService:
         cleaned = _TAG_RE.sub('', (value or '').strip())
         return cleaned[:255]
 
-    @staticmethod
-    def filter_items_queryset(user, query):
-        queryset = BasketService.get_items_queryset(user)
-        query = BasketService.clean_search_query(query)
+    @classmethod
+    def filter_items_queryset(cls, user, query):
+        queryset = cls.get_items_queryset(user)
+        query = cls.clean_search_query(query)
         if not query:
             return queryset
         return queryset.filter(
@@ -61,10 +63,10 @@ class BasketService:
             | Q(car__car_id__icontains=query)
         )
 
-    @staticmethod
-    def item_exists(user, car, part, brand, brand_number):
-        brand, brand_number = BasketService.normalize_cross_brand_fields(brand, brand_number)
-        return BasketItem.objects.filter(
+    @classmethod
+    def item_exists(cls, user, car, part, brand, brand_number):
+        brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
+        return cls.basket_item_model.objects.filter(
             user=user,
             car=car,
             part=part,
@@ -72,11 +74,11 @@ class BasketService:
             basket__brand_number=brand_number,
         ).exists()
 
-    @staticmethod
-    def add_item(user, car, part, brand, brand_number):
-        brand, brand_number = BasketService.normalize_cross_brand_fields(brand, brand_number)
-        basket, _created = BasketService.get_or_create_basket(brand, brand_number)
-        item, created = BasketItem.objects.get_or_create(
+    @classmethod
+    def add_item(cls, user, car, part, brand, brand_number):
+        brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
+        basket, _created = cls.get_or_create_basket(brand, brand_number)
+        item, created = cls.basket_item_model.objects.get_or_create(
             user=user,
             car=car,
             part=part,
@@ -85,32 +87,32 @@ class BasketService:
         )
         return item, created
 
-    @staticmethod
-    def prune_empty_baskets():
-        orphan_ids = Basket.objects.annotate(
+    @classmethod
+    def prune_empty_baskets(cls):
+        orphan_ids = cls.basket_model.objects.annotate(
             item_count=Count('items'),
         ).filter(item_count=0).values_list('pk', flat=True)
         if orphan_ids:
-            Basket.objects.filter(pk__in=list(orphan_ids)).delete()
+            cls.basket_model.objects.filter(pk__in=list(orphan_ids)).delete()
 
-    @staticmethod
-    def remove_item(item):
+    @classmethod
+    def remove_item(cls, item):
         """Remove an item and all its hidden duplicates sharing the same
         brand, brand_number, part_number, and car_model."""
         basket_id = item.basket_id
         # Delete all underlying copies of this consolidated row
-        BasketItem.objects.filter(
+        cls.basket_item_model.objects.filter(
             user=item.user,
             basket_id=item.basket_id,
             part__part_number=item.part.part_number,
             car__car_model=item.car.car_model,
         ).delete()
-        if not BasketItem.objects.filter(basket_id=basket_id).exists():
-            Basket.objects.filter(pk=basket_id).delete()
+        if not cls.basket_item_model.objects.filter(basket_id=basket_id).exists():
+            cls.basket_model.objects.filter(pk=basket_id).delete()
 
-    @staticmethod
-    def remove_duplicates(user):
-        items = BasketItem.objects.filter(user=user).order_by('id').values_list(
+    @classmethod
+    def remove_duplicates(cls, user):
+        items = cls.basket_item_model.objects.filter(user=user).order_by('id').values_list(
             'id',
             'car_id',
             'part_id',
@@ -128,31 +130,31 @@ class BasketService:
         if not duplicate_ids:
             return 0
 
-        deleted, _ = BasketItem.objects.filter(user=user, id__in=duplicate_ids).delete()
-        BasketService.prune_empty_baskets()
+        deleted, _ = cls.basket_item_model.objects.filter(user=user, id__in=duplicate_ids).delete()
+        cls.prune_empty_baskets()
         return deleted
 
-    @staticmethod
-    def clear_basket(user):
+    @classmethod
+    def clear_basket(cls, user):
         basket_ids = list(
-            BasketItem.objects.filter(user=user).values_list('basket_id', flat=True).distinct()
+            cls.basket_item_model.objects.filter(user=user).values_list('basket_id', flat=True).distinct()
         )
-        deleted, _ = BasketItem.objects.filter(user=user).delete()
+        deleted, _ = cls.basket_item_model.objects.filter(user=user).delete()
         if basket_ids:
-            Basket.objects.annotate(item_count=Count('items')).filter(
+            cls.basket_model.objects.annotate(item_count=Count('items')).filter(
                 pk__in=basket_ids,
                 item_count=0,
             ).delete()
         return deleted
 
-    @staticmethod
-    def build_export_workbook(user):
+    @classmethod
+    def build_export_workbook(cls, user):
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Basket'
         sheet.append(['Cross Brand', 'Cross Code', 'OE Number', 'Car Model'])
         # Use the consolidated queryset so export matches what the user sees
-        for item in BasketService.get_items_queryset(user):
+        for item in cls.get_items_queryset(user):
             sheet.append([
                 item.basket.brand,
                 item.basket.brand_number,
@@ -161,47 +163,47 @@ class BasketService:
             ])
         return workbook
 
-    @staticmethod
-    def get_or_create_baskets_for_pairs(brand_pairs):
+    @classmethod
+    def get_or_create_baskets_for_pairs(cls, brand_pairs):
         basket_map = {}
         for brand, brand_number in brand_pairs:
-            normalized = BasketService.normalize_cross_brand_fields(brand, brand_number)
-            basket, _ = BasketService.get_or_create_basket(*normalized)
+            normalized = cls.normalize_cross_brand_fields(brand, brand_number)
+            basket, _ = cls.get_or_create_basket(*normalized)
             basket_map[normalized] = basket
         return basket_map
 
-    @staticmethod
-    def existing_item_keys(user, part_numbers):
+    @classmethod
+    def existing_item_keys(cls, user, part_numbers):
         return {
             (car_id, part_number, basket_id)
-            for car_id, part_number, basket_id in BasketItem.objects.filter(
+            for car_id, part_number, basket_id in cls.basket_item_model.objects.filter(
                 user=user,
                 part__part_number__in=part_numbers,
             ).values_list('car_id', 'part__part_number', 'basket_id')
         }
 
-    @staticmethod
-    def get_user_basket_groups(user):
+    @classmethod
+    def get_user_basket_groups(cls, user):
         basket_ids = (
-            BasketItem.objects.filter(user=user)
+            cls.basket_item_model.objects.filter(user=user)
             .values_list('basket_id', flat=True)
             .distinct()
         )
         baskets = list(
-            Basket.objects.filter(pk__in=basket_ids)
+            cls.basket_model.objects.filter(pk__in=basket_ids)
             .order_by('brand', 'brand_number')
         )
         # Attach consolidated item counts using the grouped queryset
         for basket in baskets:
-            basket.item_count = BasketService.get_group_items_queryset(user, basket.pk).count()
+            basket.item_count = cls.get_group_items_queryset(user, basket.pk).count()
         return baskets
 
-    @staticmethod
-    def get_group_items_queryset(user, basket_id):
+    @classmethod
+    def get_group_items_queryset(cls, user, basket_id):
         """Return group items with duplicates consolidated.
         Uses PostgreSQL DISTINCT ON to keep only one row per unique
         (part_number, car_model) combination within a basket group."""
-        return BasketItem.objects.filter(
+        return cls.basket_item_model.objects.filter(
             user=user,
             basket_id=basket_id,
         ).select_related('basket', 'car', 'part').order_by(
@@ -210,10 +212,10 @@ class BasketService:
             'part__part_number', 'car__car_model',
         )
 
-    @staticmethod
-    def filter_group_items_queryset(user, basket_id, query):
-        queryset = BasketService.get_group_items_queryset(user, basket_id)
-        query = BasketService.clean_search_query(query)
+    @classmethod
+    def filter_group_items_queryset(cls, user, basket_id, query):
+        queryset = cls.get_group_items_queryset(user, basket_id)
+        query = cls.clean_search_query(query)
         if not query:
             return queryset
         return queryset.filter(
@@ -224,9 +226,9 @@ class BasketService:
             | Q(car__car_id__icontains=query)
         )
 
-    @staticmethod
-    def user_owns_basket_group(user, basket_id):
-        return BasketItem.objects.filter(user=user, basket_id=basket_id).exists()
+    @classmethod
+    def user_owns_basket_group(cls, user, basket_id):
+        return cls.basket_item_model.objects.filter(user=user, basket_id=basket_id).exists()
 
     @staticmethod
     def parse_page_number(value, default=1):
@@ -236,11 +238,11 @@ class BasketService:
             return default
         return max(1, page)
 
-    @staticmethod
-    def page_after_delete(requested_page, total_count, per_page=None):
+    @classmethod
+    def page_after_delete(cls, requested_page, total_count, per_page=None):
         if per_page is None:
-            per_page = BasketService.BASKET_PAGE_SIZE
-        page = BasketService.parse_page_number(requested_page)
+            per_page = cls.BASKET_PAGE_SIZE
+        page = cls.parse_page_number(requested_page)
         if total_count <= 0:
             return 1
         max_page = max(1, (total_count + per_page - 1) // per_page)
@@ -254,3 +256,8 @@ class BasketService:
         if page > 1:
             params['page'] = page
         return params
+
+
+class BasketServiceCrossCode(BasketService):
+    basket_model = BasketCrossCode
+    basket_item_model = BasketItemCrossCode

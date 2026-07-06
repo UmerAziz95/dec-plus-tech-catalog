@@ -1,10 +1,6 @@
-import json
-import threading
-
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
-from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -14,22 +10,17 @@ from django.views.decorators.http import require_POST
 from urllib.parse import urlencode
 
 from .forms import ExcelImportForm
-from .models import Car, CarGroup, Part, Basket, BasketItem, ImportBatch
-from .services.basket_service import BasketService
+from .models import (
+    Car, CarCrossCode, CarGroup, CarGroupCrossCode, Part, PartCrossCode,
+    Basket, BasketItem, ImportBatch,
+)
+from .services.basket_service import BasketService, BasketServiceCrossCode
 from .services.bulk_search_service import BulkSearchService
 from .services.car_catalog_service import CarCatalogService
 from .services.import_services import ExcelImportService
+from .services.manual_entry_service import ManualEntryService
 from .services.part_number_utils import sanitize_part_number
 from .services.part_search_service import PartSearchService
-
-# ── In-memory state for the one-time external DB sync ──
-_sync_lock = threading.Lock()
-_sync_state = {
-    'status': 'idle',       # idle | running | completed | failed
-    'parts_synced': 0,
-    'car_groups_synced': 0,
-    'error': '',
-}
 
 
 
@@ -66,8 +57,21 @@ def _get_approx_count(table_name):
     with connection.cursor() as cursor:
         cursor.execute("SELECT reltuples::bigint FROM pg_class WHERE relname = %s", [table_name])
         row = cursor.fetchone()
-        if row and row[0] > 0:
+        if row is None:
+            return 0  # table doesn't exist at all
+        if row[0] > 0:
             return row[0]
+        # reltuples is a planner estimate refreshed by ANALYZE/autovacuum —
+        # a brand-new or lightly-populated table (e.g. a freshly created
+        # Cross Code table) can sit at 0 for a while after real rows exist.
+        # An exact COUNT(*) is only expensive on tables large enough that
+        # they'd already have been analyzed and skipped this fallback; we
+        # know the table exists here since pg_class returned a row for it.
+        if table_name not in ('cars', 'parts'):
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')  # noqa: S608 - table_name is always a fixed literal, never user input
+            row = cursor.fetchone()
+            if row:
+                return row[0]
     return 0
 
 
@@ -109,21 +113,49 @@ def _get_unmapped_table_stats():
     return extra_tables
 
 
+# Registry the dashboard's stat table loops over. Adding a future module
+# (a 3rd catalog alongside Cross Car / Cross Code) means adding one entry
+# here — the view and template render it automatically, no hardcoded block
+# to duplicate.
+DASHBOARD_MODULES = [
+    {
+        'key': 'cross_car',
+        'label': 'Cross Car',
+        'cars_table': 'cars',
+        'parts_table': 'parts',
+        'basket_service': BasketService,
+    },
+    {
+        'key': 'cross_code',
+        'label': 'Cross Code',
+        'cars_table': 'cars_crosscode',
+        'parts_table': 'parts_crosscode',
+        'basket_service': BasketServiceCrossCode,
+    },
+]
+
+
 @login_required
 def dashboard_view(request):
     """Main dashboard with database statistics."""
+    modules = []
+    for cfg in DASHBOARD_MODULES:
+        modules.append({
+            'key': cfg['key'],
+            'label': cfg['label'],
+            'total_cars': _get_approx_count(cfg['cars_table']),
+            'total_parts': _get_approx_count(cfg['parts_table']),
+            'basket_count': cfg['basket_service'].count_for_user(request.user),
+        })
+
     context = {
         'active_page': 'dashboard',
-        'total_cars': _get_approx_count('cars'),
-        'total_parts': _get_approx_count('parts'),
-        'basket_count': BasketService.count_for_user(request.user),
+        'modules': modules,
         'extra_tables': _get_unmapped_table_stats(),
-        # Cross Code mirrors Cross Car's stats, but reads from the
-        # Cross Code counterpart tables. Those tables don't exist yet, so
-        # _get_approx_count naturally returns 0 until they're created.
-        'total_cars_crosscode': _get_approx_count('cars_crosscode'),
-        'total_parts_crosscode': _get_approx_count('parts_crosscode'),
-        'basket_count_crosscode': _get_approx_count('basket_items_crosscode'),
+        # Kept for the sidebar badges and quick-action cards, which aren't
+        # part of the generic stat-table loop.
+        'basket_count': BasketService.count_for_user(request.user),
+        'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
     }
     return render(request, 'inventory/dashboard.html', context)
 
@@ -163,7 +195,11 @@ def import_data_view(request):
         'groups_import_history': user_batches.filter(import_type=ImportBatch.TYPE_GROUPS).order_by('-created_at')[:history_limit],
         'parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_PARTS).order_by('-created_at')[:history_limit],
         'car_with_parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CAR_WITH_PARTS).order_by('-created_at')[:history_limit],
+        'cars_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CARS_CROSSCODE).order_by('-created_at')[:history_limit],
+        'groups_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_GROUPS_CROSSCODE).order_by('-created_at')[:history_limit],
+        'parts_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_PARTS_CROSSCODE).order_by('-created_at')[:history_limit],
         'basket_count': BasketService.count_for_user(request.user),
+        'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
         'max_upload_size_bytes': getattr(settings, 'IMPORT_MAX_UPLOAD_SIZE_BYTES', 5 * 1024 * 1024 * 1024),
         'max_upload_size_gb': getattr(settings, 'IMPORT_MAX_UPLOAD_SIZE_GB', 5),
         'import_groups_column_pairs': getattr(settings, 'IMPORT_GROUPS_COLUMN_PAIRS', 3),
@@ -199,6 +235,54 @@ def import_history_view(request):
     })
 
 
+def _sample_workbook_response(workbook, filename):
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    workbook.save(response)
+    return response
+
+
+@login_required
+def cars_sample_export_view(request):
+    return _sample_workbook_response(ExcelImportService.build_cars_sample_workbook(), 'cars_sample.xlsx')
+
+
+@login_required
+def groups_sample_export_view(request):
+    return _sample_workbook_response(ExcelImportService.build_groups_sample_workbook(), 'groups_sample.xlsx')
+
+
+@login_required
+def parts_sample_export_view(request):
+    return _sample_workbook_response(ExcelImportService.build_parts_sample_workbook(), 'parts_sample.xlsx')
+
+
+@login_required
+def car_with_parts_sample_export_view(request):
+    return _sample_workbook_response(ExcelImportService.build_car_with_parts_sample_workbook(), 'car_with_parts_sample.xlsx')
+
+
+@login_required
+def manual_add_suggestions_view(request):
+    query = request.GET.get('q', '')
+    return JsonResponse({'suggestions': ManualEntryService.suggest_car_models(query)})
+
+
+@login_required
+@require_POST
+def manual_add_part_view(request):
+    car_model = request.POST.get('car_model', '')
+    part_number = request.POST.get('part_number', '')
+    ok, error = ManualEntryService.add_part_to_car(car_model, part_number)
+    if ok:
+        messages.success(request, f'Added part "{part_number.strip()}" to "{car_model.strip()}".')
+    else:
+        messages.error(request, error)
+    return redirect('inventory:import_data')
+
+
 @login_required
 @require_POST
 def import_batch_delete_view(request, batch_id):
@@ -211,10 +295,18 @@ def import_batch_delete_view(request, batch_id):
     # Only rows this batch actually created carry its import_batch stamp
     # (rows it merely updated/reused, e.g. an existing car, are left alone).
     # Batches imported before this tracking existed have no stamped rows,
-    # so deleting them removes the history entry but no data.
+    # so deleting them removes the history entry but no data. Cross Car and
+    # Cross Code models are both checked since a batch's import_type tells
+    # us which forms created it, not which table(s) it could have touched.
     cars_deleted, _ = Car.objects.filter(import_batch=batch).delete()
     groups_deleted, _ = CarGroup.objects.filter(import_batch=batch).delete()
     parts_deleted, _ = Part.objects.filter(import_batch=batch).delete()
+    cars_cc_deleted, _ = CarCrossCode.objects.filter(import_batch=batch).delete()
+    groups_cc_deleted, _ = CarGroupCrossCode.objects.filter(import_batch=batch).delete()
+    parts_cc_deleted, _ = PartCrossCode.objects.filter(import_batch=batch).delete()
+    cars_deleted += cars_cc_deleted
+    groups_deleted += groups_cc_deleted
+    parts_deleted += parts_cc_deleted
     batch.delete()
 
     messages.success(
@@ -610,6 +702,39 @@ def cars_catalog_update_view(request, car_pk):
     return redirect(next_url)
 
 
+def _redirect_to_next(request, fallback_view_name):
+    next_url = request.POST.get('next', '').strip()
+    if next_url.startswith('?'):
+        return redirect(f"{reverse(fallback_view_name)}{next_url}")
+    return redirect(fallback_view_name)
+
+
+@login_required
+@require_POST
+def part_update_view(request, part_id):
+    part = get_object_or_404(Part, pk=part_id)
+    part_number = CarCatalogService.clean_text(request.POST.get('part_number', ''), 100)
+    brand = CarCatalogService.clean_text(request.POST.get('brand', ''), 100)
+    if not part_number:
+        messages.error(request, 'Part number is required.')
+    else:
+        part.part_number = part_number
+        part.brand = brand
+        part.save(update_fields=['part_number', 'brand', 'updated_at'])
+        messages.success(request, f'Updated part {part_number}.')
+    return _redirect_to_next(request, 'inventory:search_part')
+
+
+@login_required
+@require_POST
+def part_delete_view(request, part_id):
+    part = get_object_or_404(Part, pk=part_id)
+    part_number = part.part_number
+    part.delete()
+    messages.success(request, f'Deleted part {part_number}. It no longer appears for any vehicle.')
+    return _redirect_to_next(request, 'inventory:search_part')
+
+
 @login_required
 def basket_export_view(request):
     if not BasketItem.objects.filter(user=request.user).exists():
@@ -714,173 +839,3 @@ def basket_group_detail_view(request, basket_id):
     return render(request, 'inventory/basket_group_detail.html', context)
 
 
-# ============================================
-# EXTERNAL DB SYNC VIEWS
-# ============================================
-
-def _run_sync_worker():
-    """Background worker that fetches Part and CarGroup from external DB."""
-    import logging
-    from django.db import connections
-
-    logger = logging.getLogger('inventory.sync')
-    BATCH_SIZE = 5000
-    log_lines = []
-
-    def log(msg):
-        logger.info(msg)
-        log_lines.append(msg)
-        _sync_state['log'] = log_lines[:]
-
-    try:
-        log('[SYNC] Connecting to external database...')
-        ext_conn = connections['external']
-        ext_cursor = ext_conn.cursor()
-        log('[SYNC] Connected OK.')
-
-        # ── Introspect external parts table columns ──────────────────────────
-        log('[SYNC] Introspecting external "parts" table columns...')
-        ext_cursor.execute("""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'parts'
-            ORDER BY ordinal_position
-        """)
-        ext_parts_cols = ext_cursor.fetchall()
-        col_names = [r[0] for r in ext_parts_cols]
-        log(f'[SYNC] External parts columns: {col_names}')
-
-        # ── Fetch parts ──────────────────────────────────────────────────────
-        log('[SYNC] Fetching ALL valid rows from external parts (in chunks)...')
-        ext_cursor.execute(
-            "SELECT group_id, brand_id AS brand, code AS part_number FROM parts WHERE code IS NOT NULL AND code != ''"
-        )
-        columns = [col[0] for col in ext_cursor.description]
-
-        parts_total = 0
-        skipped_parts = 0
-        
-        while True:
-            chunk = ext_cursor.fetchmany(10000)
-            if not chunk:
-                break
-            
-            rows = [dict(zip(columns, row)) for row in chunk]
-            parts_buffer = []
-            
-            for row in rows:
-                pn = str(row.get('part_number', '') or '').strip()
-                if not pn:
-                    skipped_parts += 1
-                    continue
-                parts_buffer.append(Part(
-                    group_id=str(row.get('group_id', '') or ''),
-                    brand=str(row.get('brand', '') or ''),
-                    part_number=pn,
-                ))
-            
-            if parts_buffer:
-                Part.objects.bulk_create(parts_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
-                parts_total += len(parts_buffer)
-                _sync_state['parts_synced'] = parts_total  # Update status live
-
-        log(f'[SYNC] Parts inserted: {parts_total}, skipped (empty part_number): {skipped_parts}')
-        _sync_state['parts_synced'] = parts_total
-
-        # ── Fetch car_groups ─────────────────────────────────────────────────
-        log('[SYNC] Introspecting external "car_groups" table columns...')
-        ext_cursor.execute("""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'car_groups'
-            ORDER BY ordinal_position
-        """)
-        cg_cols = [r[0] for r in ext_cursor.fetchall()]
-        log(f'[SYNC] External car_groups columns: {cg_cols}')
-
-        log('[SYNC] Fetching ALL rows from external car_groups (in chunks)...')
-        ext_cursor.execute('SELECT car_id, group_id FROM car_groups')
-        columns = [col[0] for col in ext_cursor.description]
-
-        cg_total = 0
-        
-        while True:
-            chunk = ext_cursor.fetchmany(10000)
-            if not chunk:
-                break
-                
-            rows = [dict(zip(columns, row)) for row in chunk]
-            cg_buffer = []
-            
-            for row in rows:
-                gid = str(row.get('group_id', '') or '')
-                ext_car_id = str(row.get('car_id', '') or '')
-                if not ext_car_id:
-                    continue
-                cg_buffer.append(CarGroup(car_id=ext_car_id, group_id=gid))
-                
-            if cg_buffer:
-                CarGroup.objects.bulk_create(cg_buffer, batch_size=BATCH_SIZE, ignore_conflicts=True)
-                cg_total += len(cg_buffer)
-                _sync_state['car_groups_synced'] = cg_total  # Update status live
-
-        log(f'[SYNC] CarGroups inserted: {cg_total}')
-        _sync_state['car_groups_synced'] = cg_total
-
-        ext_cursor.close()
-        ext_conn.close()
-
-        log('[SYNC] Sync completed successfully.')
-        _sync_state['status'] = 'completed'
-
-    except Exception as exc:
-        _sync_state['status'] = 'failed'
-        _sync_state['error'] = str(exc)
-
-
-@login_required
-def sync_external_db_view(request):
-    """Page with the external DB sync button."""
-    # Reset status if completed, so they can run it again on page load
-    if _sync_state['status'] == 'completed':
-        _sync_state['status'] = 'idle'
-
-    context = {
-        'active_page': 'sync_external',
-        'sync_status': _sync_state['status'],
-        'parts_synced': _sync_state['parts_synced'],
-        'car_groups_synced': _sync_state['car_groups_synced'],
-        'sync_error': _sync_state['error'],
-        'basket_count': BasketService.count_for_user(request.user),
-    }
-    return render(request, 'inventory/sync_external.html', context)
-
-
-@login_required
-@require_POST
-def trigger_sync_view(request):
-    """Trigger the external DB sync (AJAX POST)."""
-    with _sync_lock:
-        if _sync_state['status'] == 'running':
-            return JsonResponse({'ok': False, 'error': 'Sync is already running.'})
-
-        _sync_state['status'] = 'running'
-        _sync_state['parts_synced'] = 0
-        _sync_state['car_groups_synced'] = 0
-        _sync_state['error'] = ''
-
-    thread = threading.Thread(target=_run_sync_worker, daemon=True)
-    thread.start()
-    return JsonResponse({'ok': True})
-
-
-@login_required
-def sync_status_view(request):
-    """AJAX polling endpoint for sync progress."""
-    return JsonResponse({
-        'status': _sync_state['status'],
-        'parts_synced': _sync_state['parts_synced'],
-        'car_groups_synced': _sync_state['car_groups_synced'],
-        'error': _sync_state['error'],
-        'log': _sync_state.get('log', []),
-    })

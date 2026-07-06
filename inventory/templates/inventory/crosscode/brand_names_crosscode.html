@@ -1,0 +1,199 @@
+{% extends "app_base.html" %}
+
+{% block title %}Brand Names{% endblock %}
+{% block page_title %}Brand Names{% endblock %}
+{% block breadcrumb %}Home / Brand Names{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <div class="card brand-search-card">
+        <form method="get" action="" class="brand-search-form" id="brand-search-form">
+            <div class="search-bar brand-search-bar">
+                <span class="search-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </span>
+                <input type="text" name="q" id="brand-search-input" class="form-input" placeholder="Search brand names..." value="{{ query }}" autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span>Search</span>
+            </button>
+            {% if query %}
+            <a href="{% url 'inventory:brand_names_crosscode' %}" class="btn btn-secondary btn-lg">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="results-summary">
+        <div class="results-info">
+            <span class="results-count">{{ brands|length }}</span> distinct brand{{ brands|length|pluralize }}{% if query %} matching "<strong>{{ query }}</strong>"{% endif %}
+        </div>
+    </div>
+
+    {% if has_results %}
+    <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="table-wrapper">
+            <table class="data-table" id="brand-names-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Brand name</th>
+                        <th>Parts using it</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for brand in brands %}
+                    <tr class="brand-row">
+                        <td class="row-number">{{ forloop.counter }}</td>
+                        <td><span class="brand-name">{{ brand.brand }}</span></td>
+                        <td><span class="part-count">{{ brand.part_count }}</span></td>
+                        <td class="actions-cell">
+                            <button type="button" class="btn btn-sm btn-edit brand-rename-btn" title="Rename brand" data-brand-name="{{ brand.brand }}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                Rename
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="empty-state">
+            <h3 class="empty-state-title">No brands found</h3>
+            <p class="empty-state-text">
+                {% if query %}Nothing matches "<strong>{{ query }}</strong>". Try another term or clear the search.{% else %}No Cross Code parts have a brand set yet.{% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal-overlay" id="brand-rename-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 420px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Rename Brand</h3>
+            <button type="button" class="modal-close" onclick="closeBrandRenameModal()" aria-label="Close">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" id="brand-rename-form" action="{% url 'inventory:brand_rename_crosscode' %}">
+            {% csrf_token %}
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Current name</label>
+                    <input type="text" id="brand-rename-old-display" class="form-input" disabled>
+                    <input type="hidden" name="old_name" id="brand-rename-old-name">
+                </div>
+                <div class="form-group" style="margin-top: var(--space-md);">
+                    <label class="form-label" for="brand-rename-new-name">New name <span class="required-mark">*</span></label>
+                    <input type="text" name="new_name" id="brand-rename-new-name" class="form-input" required maxlength="100">
+                </div>
+                <p class="rename-note">This updates every part currently using the old brand name.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeBrandRenameModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Rename</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .brand-search-card { margin-bottom: var(--space-md); padding: var(--space-lg); }
+    .brand-search-form { display: flex; align-items: end; gap: var(--space-md); flex-wrap: wrap; }
+    .brand-search-bar { flex: 1 1 280px; min-width: 0; }
+    .required-mark { color: var(--error); }
+
+    .results-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-md); margin-bottom: var(--space-md); padding: 0 var(--space-xs); }
+    .results-info { font-size: var(--font-sm); color: var(--text-secondary); }
+    .results-count { font-weight: 700; color: var(--accent-light); font-size: var(--font-lg); }
+
+    .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
+    .brand-name { font-weight: 600; color: #fbbf24; }
+    .part-count {
+        display: inline-flex; padding: 2px 10px; border-radius: var(--radius-sm);
+        font-size: var(--font-xs); font-weight: 600;
+        background: var(--accent-dim); color: var(--accent-light);
+    }
+    .actions-cell { display: flex; gap: 4px; }
+    .btn-edit { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
+
+    .brand-row { transition: all var(--t-fast); }
+    .brand-row:hover { background: var(--surface-muted, #f8fafc) !important; }
+
+    .rename-note { margin: var(--space-md) 0 0; font-size: var(--font-xs); color: var(--text-muted); }
+
+    .modal-overlay {
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        display: flex; align-items: center; justify-content: center;
+        padding: var(--space-lg); animation: modalFadeIn 0.2s ease;
+    }
+    .modal-card {
+        background: var(--card-bg); border: 1px solid var(--card-border);
+        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12); animation: modalSlideUp 0.25s ease;
+    }
+    .modal-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
+    }
+    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
+    .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast); }
+    .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
+    .modal-body { padding: var(--space-lg) var(--space-xl); }
+    .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border); }
+    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 768px) {
+        .brand-search-form { flex-direction: column; align-items: stretch; }
+        .brand-search-bar { width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function closeBrandRenameModal() {
+        const modal = document.getElementById('brand-rename-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    (function () {
+        const modal = document.getElementById('brand-rename-modal');
+        if (!modal) return;
+
+        const oldNameInput = document.getElementById('brand-rename-old-name');
+        const oldDisplayInput = document.getElementById('brand-rename-old-display');
+        const newNameInput = document.getElementById('brand-rename-new-name');
+
+        document.querySelectorAll('.brand-rename-btn').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const brandName = button.dataset.brandName || '';
+                oldNameInput.value = brandName;
+                oldDisplayInput.value = brandName;
+                newNameInput.value = brandName;
+                modal.style.display = 'flex';
+                newNameInput.focus();
+                newNameInput.select();
+            });
+        });
+
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closeBrandRenameModal();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.style.display === 'flex') closeBrandRenameModal();
+        });
+    })();
+</script>
+{% endblock %}

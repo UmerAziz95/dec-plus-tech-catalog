@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import views_crosscode
 
 app_name = 'inventory'
 
@@ -9,12 +10,20 @@ urlpatterns = [
     path('import/status/<int:batch_id>/', views.import_batch_status_view, name='import_batch_status'),
     path('import/history/', views.import_history_view, name='import_history'),
     path('import/<int:batch_id>/delete/', views.import_batch_delete_view, name='import_batch_delete'),
+    path('import/sample/cars/', views.cars_sample_export_view, name='cars_sample_export'),
+    path('import/sample/groups/', views.groups_sample_export_view, name='groups_sample_export'),
+    path('import/sample/parts/', views.parts_sample_export_view, name='parts_sample_export'),
+    path('import/sample/car-with-parts/', views.car_with_parts_sample_export_view, name='car_with_parts_sample_export'),
+    path('import/manual-add/', views.manual_add_part_view, name='manual_add_part'),
+    path('import/manual-add/suggestions/', views.manual_add_suggestions_view, name='manual_add_suggestions'),
     path('search/', views.search_part_view, name='search_part'),
     path('search/add-all-to-basket/', views.add_search_results_to_basket, name='add_search_results_to_basket'),
     path('search/bulk-missed-export/', views.bulk_search_missed_export_view, name='bulk_search_missed_export'),
     path('search/bulk-sample-export/', views.bulk_search_sample_export_view, name='bulk_search_sample_export'),
     path('search/export/', views.part_search_export_view, name='part_search_export'),
     path('search/bulk-results-export/', views.bulk_search_results_export_view, name='bulk_search_results_export'),
+    path('parts/<int:part_id>/update/', views.part_update_view, name='part_update'),
+    path('parts/<int:part_id>/delete/', views.part_delete_view, name='part_delete'),
     path('cars/', views.cars_catalog_view, name='cars_catalog'),
     path('cars/suggestions/', views.cars_catalog_suggestions_view, name='cars_catalog_suggestions'),
     path('cars/export/', views.cars_catalog_export_view, name='cars_catalog_export'),
@@ -28,8 +37,30 @@ urlpatterns = [
     path('basket/<int:basket_id>/remove/', views.remove_from_basket, name='remove_from_basket'),
     path('basket/<int:basket_id>/update/', views.update_basket_item, name='update_basket_item'),
     path('book-search/', views.book_search_view, name='book_search'),
-    # External DB sync
-    path('sync-external/', views.sync_external_db_view, name='sync_external'),
-    path('sync-external/trigger/', views.trigger_sync_view, name='sync_trigger'),
-    path('sync-external/status/', views.sync_status_view, name='sync_status'),
+
+    # ── Cross Code ──────────────────────────────────────────────────
+    path('crosscode/search/', views_crosscode.search_part_crosscode_view, name='search_part_crosscode'),
+    path('crosscode/search/add-all-to-basket/', views_crosscode.add_search_results_to_basket_crosscode, name='add_search_results_to_basket_crosscode'),
+    path('crosscode/search/bulk-missed-export/', views_crosscode.bulk_search_missed_export_crosscode_view, name='bulk_search_missed_export_crosscode'),
+    path('crosscode/search/bulk-sample-export/', views_crosscode.bulk_search_sample_export_crosscode_view, name='bulk_search_sample_export_crosscode'),
+    path('crosscode/search/export/', views_crosscode.part_search_export_crosscode_view, name='part_search_export_crosscode'),
+    path('crosscode/search/bulk-results-export/', views_crosscode.bulk_search_results_export_crosscode_view, name='bulk_search_results_export_crosscode'),
+    path('crosscode/parts/<int:part_id>/update/', views_crosscode.part_update_crosscode_view, name='part_update_crosscode'),
+    path('crosscode/parts/<int:part_id>/delete/', views_crosscode.part_delete_crosscode_view, name='part_delete_crosscode'),
+    path('crosscode/parts-catalog/', views_crosscode.parts_catalog_crosscode_view, name='parts_catalog_crosscode'),
+    path('crosscode/import/sample/cars/', views_crosscode.cars_crosscode_sample_export_view, name='cars_crosscode_sample_export'),
+    path('crosscode/import/sample/groups/', views_crosscode.groups_crosscode_sample_export_view, name='groups_crosscode_sample_export'),
+    path('crosscode/import/sample/parts/', views_crosscode.parts_crosscode_sample_export_view, name='parts_crosscode_sample_export'),
+    path('crosscode/import/manual-add/', views_crosscode.manual_add_part_crosscode_view, name='manual_add_part_crosscode'),
+    path('crosscode/import/manual-add/suggestions/', views_crosscode.manual_add_suggestions_crosscode_view, name='manual_add_suggestions_crosscode'),
+    path('crosscode/basket/', views_crosscode.basket_crosscode_view, name='basket_crosscode'),
+    path('crosscode/basket/group/<int:basket_id>/', views_crosscode.basket_group_detail_crosscode_view, name='basket_group_detail_crosscode'),
+    path('crosscode/basket/export/', views_crosscode.basket_export_crosscode_view, name='basket_export_crosscode'),
+    path('crosscode/basket/remove-duplicates/', views_crosscode.remove_basket_duplicates_crosscode_view, name='remove_basket_duplicates_crosscode'),
+    path('crosscode/basket/clear/', views_crosscode.clear_basket_crosscode_view, name='clear_basket_crosscode'),
+    path('crosscode/basket/add/', views_crosscode.add_to_basket_crosscode, name='add_to_basket_crosscode'),
+    path('crosscode/basket/<int:basket_id>/remove/', views_crosscode.remove_from_basket_crosscode, name='remove_from_basket_crosscode'),
+    path('crosscode/basket/<int:basket_id>/update/', views_crosscode.update_basket_item_crosscode, name='update_basket_item_crosscode'),
+    path('crosscode/brand-names/', views_crosscode.brand_names_crosscode_view, name='brand_names_crosscode'),
+    path('crosscode/brand-names/rename/', views_crosscode.brand_rename_crosscode_view, name='brand_rename_crosscode'),
 ]

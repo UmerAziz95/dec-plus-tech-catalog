@@ -24,25 +24,29 @@ def annotate_part_number_normalized(queryset):
     )
 
 
-def filter_parts_exact(query):
+def filter_parts_exact(query, model=None):
     """
     Filter parts by exact normalized match using the stored generated column.
     Uses the B-tree index on part_number_norm — instant on 135M rows.
     """
-    from inventory.models import Part
-    return Part.objects.extra(
+    if model is None:
+        from inventory.models import Part
+        model = Part
+    return model.objects.extra(
         where=["part_number_norm = %s"],
         params=[query],
     ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')
 
 
-def filter_parts_contains(query):
+def filter_parts_contains(query, model=None):
     """
     Filter parts by substring match using the stored generated column.
     Uses the GIN trigram index on part_number_norm — fast on 135M rows.
     """
-    from inventory.models import Part
-    return Part.objects.extra(
+    if model is None:
+        from inventory.models import Part
+        model = Part
+    return model.objects.extra(
         where=["part_number_norm ILIKE %s"],
         params=[f'%{query}%'],
     ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')

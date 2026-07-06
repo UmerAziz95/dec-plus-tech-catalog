@@ -1,8 +1,8 @@
 {% extends "app_base.html" %}
 
-{% block title %}Search Part Number{% endblock %}
-{% block page_title %}Search Part Number{% endblock %}
-{% block breadcrumb %}Home / Search Part Number{% endblock %}
+{% block title %}Search Parts Number{% endblock %}
+{% block page_title %}Search Parts Number{% endblock %}
+{% block breadcrumb %}Home / Search Parts Number{% endblock %}
 
 {% block content %}
 <div class="fade-in search-page">
@@ -31,7 +31,7 @@
                         <span>Search</span>
                     </button>
                     {% if query or bulk_has_searched %}
-                    <a href="{% url 'inventory:search_part' %}" class="btn btn-secondary btn-lg" id="clear-btn" title="Clear all results">
+                    <a href="{% url 'inventory:search_part_crosscode' %}" class="btn btn-secondary btn-lg" id="clear-btn" title="Clear all results">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                         <span>Clear</span>
                     </a>
@@ -43,7 +43,7 @@
         <section class="search-tools-block" id="bulk-search-panel">
             <h2 class="panel-title">Bulk search</h2>
             <div class="card search-card">
-                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
+                <form method="post" action="{% url 'inventory:search_part_crosscode' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
                     {% csrf_token %}
                     <div class="search-bar" style="flex: 1;">
                         <span class="search-icon">
@@ -63,7 +63,7 @@
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         <span>Upload &amp; Save to basket</span>
                     </button>
-                    <a href="{% url 'inventory:bulk_search_sample_export' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn">
+                    <a href="{% url 'inventory:bulk_search_sample_export_crosscode' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         <span>Sample</span>
                     </a>
@@ -83,7 +83,7 @@
                 </div>
                 {% if bulk_missed_count %}
                 <div class="results-summary-actions">
-                    <a href="{% url 'inventory:bulk_search_missed_export' %}" class="btn btn-secondary btn-lg">
+                    <a href="{% url 'inventory:bulk_search_missed_export_crosscode' %}" class="btn btn-secondary btn-lg">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         <span>Export missed to Excel ({{ bulk_missed_count }})</span>
                     </a>
@@ -152,7 +152,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="actions-cell">
-                                    <a href="{% url 'inventory:search_part' %}?q={{ item.part_number|urlencode }}#search-results-panel" class="btn btn-sm btn-edit" title="Search Part">
+                                    <a href="{% url 'inventory:search_part_crosscode' %}?q={{ item.part_number|urlencode }}#search-results-panel" class="btn btn-sm btn-edit" title="Search Part">
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                                         View Cars
                                     </a>
@@ -202,7 +202,7 @@
             </div>
 
             <div class="card basket-assign-card">
-                <form method="post" action="{% url 'inventory:add_search_results_to_basket' %}" id="search-basket-form" class="basket-assign-form">
+                <form method="post" action="{% url 'inventory:add_search_results_to_basket_crosscode' %}" id="search-basket-form" class="basket-assign-form">
                     {% csrf_token %}
                     <input type="hidden" name="q" value="{{ query }}">
                     <input type="hidden" name="page" value="{{ page_obj.number }}">
@@ -236,7 +236,9 @@
                                 <th>Trans.</th>
                                 <th>Drive</th>
                                 <th>Engine</th>
-                                <th>Part Numbers</th>
+                                <th>Brand</th>
+                                <th>Code</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -258,17 +260,30 @@
                                 <td>
                                     <span class="engine-text">{{ item.car.engine|default:"—" }}</span>
                                 </td>
-                                <td class="parts-cell">
+                                <td class="brand-code-cell">
                                     {% for part in item.parts %}
-                                    <span class="part-tag-group">
+                                    <div class="brand-code-row-line">
+                                        <span class="brand-name">{{ part.brand|default:"—" }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </td>
+                                <td class="brand-code-cell">
+                                    {% for part in item.parts %}
+                                    <div class="brand-code-row-line">
                                         <span class="part-tag">{{ part.part_number }}</span>
-                                        <button type="button" class="part-tag-action part-tag-edit" title="Edit part" data-part-id="{{ part.id }}" data-part-number="{{ part.part_number }}" data-brand="{{ part.brand }}">&#9998;</button>
-                                        <form method="post" action="{% url 'inventory:part_delete' part.id %}" class="inline-form part-tag-delete-form" data-confirm="Delete part {{ part.part_number }}? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+                                    </div>
+                                    {% endfor %}
+                                </td>
+                                <td class="brand-code-cell">
+                                    {% for part in item.parts %}
+                                    <div class="brand-code-row-line brand-code-actions">
+                                        <button type="button" class="part-tag-action part-tag-edit" title="Edit part number" data-part-id="{{ part.id }}" data-part-number="{{ part.part_number }}">&#9998;</button>
+                                        <form method="post" action="{% url 'inventory:part_delete_crosscode' part.id %}" class="inline-form" data-confirm="Delete part {{ part.part_number }}? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
                                             {% csrf_token %}
                                             <input type="hidden" name="next" value="?q={{ query|urlencode }}&page={{ page_obj.number }}#search-results-panel">
                                             <button type="submit" class="part-tag-action part-tag-delete" title="Delete part">&#10005;</button>
                                         </form>
-                                    </span>
+                                    </div>
                                     {% endfor %}
                                 </td>
                             </tr>
@@ -364,7 +379,7 @@
         </div>
         <div class="modal-footer">
             {% if bulk_summary.missed_count %}
-            <a href="{% url 'inventory:bulk_search_missed_export' %}" class="btn btn-secondary">
+            <a href="{% url 'inventory:bulk_search_missed_export_crosscode' %}" class="btn btn-secondary">
                 Export missed to Excel ({{ bulk_summary.missed_count }})
             </a>
             {% endif %}
@@ -382,7 +397,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
         </div>
-        <form method="post" id="part-edit-form" action="{% url 'inventory:part_update' 0 %}">
+        <form method="post" id="part-edit-form" action="{% url 'inventory:part_update_crosscode' 0 %}">
             {% csrf_token %}
             <input type="hidden" name="next" id="part-edit-next" value="">
             <div class="modal-body">
@@ -390,10 +405,7 @@
                     <label class="form-label" for="part-edit-number">Part number <span class="required-mark">*</span></label>
                     <input type="text" name="part_number" id="part-edit-number" class="form-input" required maxlength="100">
                 </div>
-                <div class="form-group" style="margin-top: var(--space-md);">
-                    <label class="form-label" for="part-edit-brand">Brand</label>
-                    <input type="text" name="brand" id="part-edit-brand" class="form-input" maxlength="100">
-                </div>
+                <p class="edit-note">Brand isn't editable here — rename it from the <a href="{% url 'inventory:brand_names_crosscode' %}">Brand Names</a> page so it updates everywhere at once.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closePartEditModal()">Cancel</button>
@@ -461,6 +473,8 @@
     }
 
     .required-mark { color: var(--error); }
+    .edit-note { margin: var(--space-md) 0 0; font-size: var(--font-xs); color: var(--text-muted); }
+    .edit-note a { color: var(--accent-light); }
 
     .results-summary {
         display: flex;
@@ -495,21 +509,23 @@
     .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
     .engine-text, .params-text { font-size: var(--font-xs); color: var(--text-muted); }
 
-    .parts-cell { display: flex; flex-wrap: wrap; gap: 4px; }
-    .part-tag-group {
-        display: inline-flex; align-items: center; gap: 2px;
-        background: var(--accent-dim); border-radius: var(--radius-sm); padding-right: 2px;
+    /* Brand / Code / Actions render as aligned stacked lines so multiple
+       parts on the same car line up row-by-row across all three columns. */
+    .brand-code-cell { vertical-align: top; }
+    .brand-code-row-line {
+        display: flex; align-items: center; min-height: 26px;
     }
+    .brand-code-row-line + .brand-code-row-line { margin-top: 4px; }
+    .brand-code-actions { gap: 2px; }
     .part-tag {
         display: inline-flex; align-items: center; padding: 2px 8px;
-        color: var(--accent-light);
+        background: var(--accent-dim); color: var(--accent-light); border-radius: var(--radius-sm);
         font-size: var(--font-xs); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace; letter-spacing: 0.02em;
     }
-    .part-tag-delete-form { display: inline-flex; }
     .part-tag-action {
         display: inline-flex; align-items: center; justify-content: center;
-        width: 18px; height: 18px; border-radius: var(--radius-sm);
-        font-size: 11px; line-height: 1; color: var(--text-muted);
+        width: 22px; height: 22px; border-radius: var(--radius-sm);
+        font-size: 12px; line-height: 1; color: var(--text-muted);
         background: transparent; border: none; cursor: pointer;
         transition: all var(--t-fast);
     }
@@ -666,7 +682,6 @@
         if (!modal || !form) return;
 
         const numberInput = document.getElementById('part-edit-number');
-        const brandInput = document.getElementById('part-edit-brand');
         const nextInput = document.getElementById('part-edit-next');
         const updateUrlTemplate = form.getAttribute('action');
 
@@ -674,7 +689,6 @@
             button.addEventListener('click', function () {
                 const partId = button.dataset.partId;
                 numberInput.value = button.dataset.partNumber || '';
-                brandInput.value = button.dataset.brand || '';
                 form.action = updateUrlTemplate.replace('/0/', '/' + partId + '/');
                 nextInput.value = window.location.search + '#search-results-panel';
                 modal.style.display = 'flex';

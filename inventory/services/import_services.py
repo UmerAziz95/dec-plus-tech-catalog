@@ -3,12 +3,15 @@ import threading
 import uuid
 from pathlib import Path
 
-import openpyxl
 from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
-from inventory.models import Car, CarGroup, ImportBatch, ImportRowError, Part
+from inventory.models import (
+    Car, CarCrossCode, CarGroup, CarGroupCrossCode, ImportBatch, ImportRowError,
+    Part, PartCrossCode,
+)
+from inventory.services.spreadsheet_loader import load_workbook
 
 MAX_IMPORT_ERRORS = 2000
 
@@ -120,7 +123,7 @@ class ExcelImportService:
 
             service = ExcelImportService()
             service._update_progress(batch, 'Loading workbook (this may take a while for large files)…')
-            workbook = openpyxl.load_workbook(path, data_only=True, read_only=True)
+            workbook = load_workbook(path)
             sheet_map = {name.lower().strip(): name for name in workbook.sheetnames}
             batch_size = _batch_size()
 
@@ -132,6 +135,12 @@ class ExcelImportService:
                 service._run_parts_import(batch, workbook, sheet_map, batch_size)
             elif batch.import_type == ImportBatch.TYPE_CAR_WITH_PARTS:
                 service._run_car_with_parts_import(batch, workbook, sheet_map, batch_size)
+            elif batch.import_type == ImportBatch.TYPE_CARS_CROSSCODE:
+                service._run_cars_crosscode_import(batch, workbook, sheet_map, batch_size)
+            elif batch.import_type == ImportBatch.TYPE_GROUPS_CROSSCODE:
+                service._run_groups_crosscode_import(batch, workbook, sheet_map, batch_size)
+            elif batch.import_type == ImportBatch.TYPE_PARTS_CROSSCODE:
+                service._run_parts_crosscode_import(batch, workbook, sheet_map, batch_size)
             else:
                 service._add_error('Workbook', 0, 'Unsupported import type.')
                 service._finalize_failed(batch)
@@ -222,6 +231,89 @@ class ExcelImportService:
 
         self._update_progress(batch, 'Saving parts…')
         self._upsert_parts_batched(parsed['parts'], batch, batch_size)
+        self._finalize_completed(
+            batch,
+            total_rows=parsed['total_rows'],
+            cars_count=0,
+            groups_count=len(parsed['group_ids']),
+            links_count=0,
+            parts_count=len(parsed['parts']),
+        )
+
+    def _run_cars_crosscode_import(self, batch, workbook, sheet_map, batch_size):
+        sheet_name = self._resolve_sheet(sheet_map, self.cars_sheet_aliases, workbook)
+        if not sheet_name:
+            self._add_error('Workbook', 0, 'No worksheet found in the uploaded file.')
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Parsing Cross Code car models…')
+        parsed = self._parse_cars_sheet(workbook[sheet_name], sheet_name)
+        if self.errors:
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Saving Cross Code cars…')
+        self._upsert_cars_batched(parsed['cars'], batch, batch_size, model=CarCrossCode)
+        self._finalize_completed(
+            batch,
+            total_rows=parsed['total_rows'],
+            cars_count=len(parsed['cars']),
+            groups_count=0,
+            links_count=0,
+            parts_count=0,
+        )
+
+    def _run_groups_crosscode_import(self, batch, workbook, sheet_map, batch_size):
+        sheet_name = self._resolve_sheet(sheet_map, self.groups_sheet_aliases, workbook)
+        if not sheet_name:
+            self._add_error('Workbook', 0, 'No worksheet found in the uploaded file.')
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Parsing Cross Code groups and links…')
+        parsed = self._parse_groups_sheet(workbook[sheet_name], sheet_name)
+        if self.errors:
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Saving Cross Code car–group links…')
+        links_created = self._upsert_car_groups_batched(
+            parsed['car_group_links'], batch, batch_size,
+            car_model=CarCrossCode, group_model=CarGroupCrossCode,
+        )
+        if parsed['car_group_links'] and links_created == 0:
+            self._add_error(
+                'Groups',
+                0,
+                'No car-group links were saved. Import Cross Code car models before groups and links, then run the groups import again.',
+            )
+            self._finalize_failed(batch)
+            return
+        self._finalize_completed(
+            batch,
+            total_rows=parsed['total_rows'],
+            cars_count=0,
+            groups_count=len(parsed['group_ids']),
+            links_count=links_created,
+            parts_count=0,
+        )
+
+    def _run_parts_crosscode_import(self, batch, workbook, sheet_map, batch_size):
+        sheet_name = self._resolve_sheet(sheet_map, self.parts_sheet_aliases, workbook)
+        if not sheet_name:
+            self._add_error('Workbook', 0, 'No worksheet found in the uploaded file.')
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Parsing Cross Code part numbers…')
+        parsed = self._parse_parts_sheet(workbook[sheet_name], sheet_name)
+        if self.errors:
+            self._finalize_failed(batch)
+            return
+
+        self._update_progress(batch, 'Saving Cross Code parts…')
+        self._upsert_parts_batched(parsed['parts'], batch, batch_size, model=PartCrossCode)
         self._finalize_completed(
             batch,
             total_rows=parsed['total_rows'],
@@ -472,13 +564,13 @@ class ExcelImportService:
             'total_rows': total_rows,
         }
 
-    def _upsert_cars_batched(self, cars, batch, bs):
+    def _upsert_cars_batched(self, cars, batch, bs, model=Car):
         total = len(cars)
         for start in range(0, total, bs):
             chunk = cars[start:start + bs]
             self._update_progress(batch, f'Cars {min(start + bs, total)}/{total}')
             car_ids = [row['car_id'] for row in chunk]
-            existing_map = {item.car_id: item for item in Car.objects.filter(car_id__in=car_ids)}
+            existing_map = {item.car_id: item for item in model.objects.filter(car_id__in=car_ids)}
             to_create = []
             to_update = []
             for row in chunk:
@@ -494,7 +586,7 @@ class ExcelImportService:
                     obj.metadata_json = row['metadata_json']
                     to_update.append(obj)
                 else:
-                    to_create.append(Car(
+                    to_create.append(model(
                         car_id=row['car_id'],
                         car_model=row['car_model'],
                         steering=row['steering'],
@@ -508,17 +600,17 @@ class ExcelImportService:
                     ))
             with transaction.atomic():
                 if to_create:
-                    Car.objects.bulk_create(to_create, batch_size=bs)
+                    model.objects.bulk_create(to_create, batch_size=bs)
                 if to_update:
-                    Car.objects.bulk_update(
+                    model.objects.bulk_update(
                         to_update,
                         ['car_model', 'steering', 'transmission', 'wd', 'engine', 'car_parameters', 'additional_note', 'metadata_json'],
                         batch_size=bs,
                     )
         return total
 
-    def _upsert_car_groups_batched(self, links, batch, bs):
-        car_lookup = dict(Car.objects.values_list('car_id', 'id'))
+    def _upsert_car_groups_batched(self, links, batch, bs, car_model=Car, group_model=CarGroup):
+        car_lookup = dict(car_model.objects.values_list('car_id', 'id'))
         links_list = list(links)
         total_pairs = len(links_list)
         links_created = 0
@@ -531,15 +623,15 @@ class ExcelImportService:
                 if not car_pk:
                     self._add_error('Groups', 0, f'Unknown relation {car_id} -> {group_id}')
                     continue
-                objects.append(CarGroup(car_id=car_pk, group_id=group_id, import_batch=batch))
+                objects.append(group_model(car_id=car_pk, group_id=group_id, import_batch=batch))
             if not objects:
                 continue
             with transaction.atomic():
-                CarGroup.objects.bulk_create(objects, batch_size=bs, ignore_conflicts=True)
+                group_model.objects.bulk_create(objects, batch_size=bs, ignore_conflicts=True)
             links_created += len(objects)
         return links_created
 
-    def _upsert_parts_batched(self, parts, batch, bs):
+    def _upsert_parts_batched(self, parts, batch, bs, model=Part):
         parts_list = list(parts)
         total = len(parts_list)
         for start in range(0, total, bs):
@@ -555,7 +647,7 @@ class ExcelImportService:
             if not resolved:
                 continue
             existing = set(
-                Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
+                model.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
             )
             to_create = []
             for group_id, brand, part_number in resolved:
@@ -563,10 +655,10 @@ class ExcelImportService:
                 if key in existing:
                     continue
                 existing.add(key)
-                to_create.append(Part(group_id=group_id, brand=brand, part_number=part_number, import_batch=batch))
+                to_create.append(model(group_id=group_id, brand=brand, part_number=part_number, import_batch=batch))
             if to_create:
                 with transaction.atomic():
-                    Part.objects.bulk_create(to_create, batch_size=bs)
+                    model.objects.bulk_create(to_create, batch_size=bs)
         return total
 
     def _add_error(self, sheet_name, row_number, message):
@@ -630,3 +722,51 @@ class ExcelImportService:
                 pass
             batch.stored_file_path = ''
             batch.save(update_fields=['stored_file_path', 'updated_at'])
+
+    # ── Sample file builders ──────────────────────────────────────────
+    # One header row + one data row, matching exactly what each import
+    # type's parser expects, so a user can download, fill in, re-upload.
+
+    # Sample IDs are deliberately unrealistic (SAMPLE- prefixes) rather than
+    # plausible-looking real IDs — a plausible ID can collide with an actual
+    # row already in the database, and the Cars import updates existing
+    # matches in place, silently overwriting real fields with sample data.
+    @staticmethod
+    def build_cars_sample_workbook():
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'CarId'
+        sheet.append(['CarId', 'Car Model', 'Steering', 'Transmission', 'WD', 'Engine', 'Car parameters', 'Additional Note'])
+        sheet.append(['SAMPLE-CAR-001', 'SAMPLE CAR MODEL NAME 2020-2024', 'LHD', 'AT', '4WD', 'SAMPLE 2.0L', 'SAMPLE PARAMS', 'SAMPLE NOTE'])
+        return workbook
+
+    @staticmethod
+    def build_groups_sample_workbook():
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'carId & GroupId'
+        sheet.append(['carId', 'GroupId'])
+        sheet.append(['SAMPLE-CAR-001', 'SAMPLE-GROUP-001'])
+        return workbook
+
+    @staticmethod
+    def build_parts_sample_workbook():
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'groupId & part_number'
+        sheet.append(['groupId', 'Brand', 'part_number'])
+        sheet.append(['SAMPLE-GROUP-001', 'SampleBrand', 'SAMPLE-PART-001'])
+        return workbook
+
+    @staticmethod
+    def build_car_with_parts_sample_workbook():
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Car with parts'
+        sheet.append(['Car Name', 'Part Number'])
+        sheet.append(['SAMPLE CAR MODEL NAME 2020-2024', 'SAMPLE-PART-001'])
+        return workbook

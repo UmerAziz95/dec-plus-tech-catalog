@@ -139,6 +139,96 @@ class Part(models.Model):
         return f"{self.part_number} ({self.brand})"
 
 
+class CarCrossCode(models.Model):
+    """
+    Cross Code's counterpart to Car. Same shape, separate table — Cross
+    Code is a distinct catalog from Cross Car, not a filtered view of it.
+    """
+    car_id = models.TextField(
+        unique=True, db_index=True,
+        help_text="Unique cross-code car identifier"
+    )
+    car_model = models.TextField(blank=True)
+    steering = models.TextField(blank=True)
+    transmission = models.TextField(blank=True)
+    wd = models.TextField(blank=True)
+    engine = models.TextField(blank=True)
+    car_parameters = models.TextField(blank=True)
+    additional_note = models.TextField(blank=True)
+    metadata_json = models.JSONField(default=dict, blank=True)
+
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_crosscode_cars',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'cars_crosscode'
+        verbose_name = 'Cross Code Car'
+        verbose_name_plural = 'Cross Code Cars'
+
+    def __str__(self):
+        return self.car_model if self.car_model else self.car_id
+
+
+class CarGroupCrossCode(models.Model):
+    """Cross Code's counterpart to CarGroup."""
+    car_id = models.TextField(db_index=True, default='')
+    group_id = models.TextField(db_index=True, default='')
+
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_crosscode_car_groups',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
+    )
+
+    class Meta:
+        db_table = 'car_groups_crosscode'
+        unique_together = ('car_id', 'group_id')
+        verbose_name = 'Cross Code Car-Group Link'
+        verbose_name_plural = 'Cross Code Car-Group Links'
+
+    def __str__(self):
+        return f"{self.car_id} -> {self.group_id}"
+
+
+class PartCrossCode(models.Model):
+    """Cross Code's counterpart to Part."""
+    group_id = models.TextField(db_index=True, default='')
+    brand = models.TextField(blank=True)
+    part_number = models.TextField(db_index=True)
+
+    import_batch = models.ForeignKey(
+        'ImportBatch',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='imported_crosscode_parts',
+        help_text="Import batch that created this row, if any. Used to undo an import.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'parts_crosscode'
+        indexes = [
+            models.Index(fields=['group_id', 'part_number'], name='idx_group_part_crosscode'),
+        ]
+        verbose_name = 'Cross Code Part'
+        verbose_name_plural = 'Cross Code Parts'
+
+    def __str__(self):
+        return f"{self.part_number} ({self.brand})"
+
+
 class Basket(models.Model):
     brand = models.TextField(
         help_text="Cross-reference brand name (e.g., Kanoya)",
@@ -220,6 +310,89 @@ class BasketItem(models.Model):
         return self.basket.brand_number
 
 
+class BasketCrossCode(models.Model):
+    """Cross Code's counterpart to Basket."""
+    brand = models.TextField(
+        help_text="Cross-reference brand name (e.g., Kanoya)",
+    )
+    brand_number = models.TextField(
+        blank=True,
+        help_text="Cross-reference brand part number (e.g., C13X20)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'basket_crosscode'
+        ordering = ['-id']
+        verbose_name = 'Cross Code Basket'
+        verbose_name_plural = 'Cross Code Baskets'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['brand', 'brand_number'],
+                name='uniq_basket_crosscode_brand_pair',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.brand} | {self.brand_number}'
+
+
+class BasketItemCrossCode(models.Model):
+    """Cross Code's counterpart to BasketItem."""
+    basket = models.ForeignKey(
+        BasketCrossCode,
+        on_delete=models.CASCADE,
+        related_name='items',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='basket_items_crosscode',
+    )
+    car = models.ForeignKey(
+        CarCrossCode,
+        on_delete=models.CASCADE,
+        related_name='basket_items',
+    )
+    part = models.ForeignKey(
+        PartCrossCode,
+        on_delete=models.CASCADE,
+        related_name='basket_items',
+    )
+    group_id = models.TextField(
+        db_index=True,
+        blank=True,
+        default='',
+        help_text="The group ID this basket item belongs to"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'basket_items_crosscode'
+        ordering = ['-created_at']
+        verbose_name = 'Cross Code Basket item'
+        verbose_name_plural = 'Cross Code Basket items'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'car', 'part', 'basket'],
+                name='uniq_basket_item_crosscode_user_car_part_basket',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.basket} | {self.part.part_number} | {self.car.car_id}'
+
+    @property
+    def brand(self):
+        return self.basket.brand
+
+    @property
+    def brand_number(self):
+        return self.basket.brand_number
+
+
 class ImportBatch(models.Model):
     STATUS_PENDING = 'pending'
     STATUS_PROCESSING = 'processing'
@@ -236,11 +409,17 @@ class ImportBatch(models.Model):
     TYPE_GROUPS = 'groups'
     TYPE_PARTS = 'parts'
     TYPE_CAR_WITH_PARTS = 'car_with_parts'
+    TYPE_CARS_CROSSCODE = 'cars_crosscode'
+    TYPE_GROUPS_CROSSCODE = 'groups_crosscode'
+    TYPE_PARTS_CROSSCODE = 'parts_crosscode'
     IMPORT_TYPE_CHOICES = [
         (TYPE_CARS, 'Car models'),
         (TYPE_GROUPS, 'Groups and links'),
         (TYPE_PARTS, 'Part numbers'),
         (TYPE_CAR_WITH_PARTS, 'Car with parts'),
+        (TYPE_CARS_CROSSCODE, 'Cross Code car models'),
+        (TYPE_GROUPS_CROSSCODE, 'Cross Code groups and links'),
+        (TYPE_PARTS_CROSSCODE, 'Cross Code part numbers'),
     ]
 
     uploaded_by = models.ForeignKey(
@@ -294,6 +473,18 @@ class ImportBatch(models.Model):
                 stats.append(f'{self.cars_count:,} car{"s" if self.cars_count != 1 else ""} added')
             if self.parts_count:
                 stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} added')
+        elif self.import_type == self.TYPE_CARS_CROSSCODE and self.cars_count:
+            stats.append(f'{self.cars_count:,} car{"s" if self.cars_count != 1 else ""} imported')
+        elif self.import_type == self.TYPE_GROUPS_CROSSCODE:
+            if self.groups_count:
+                stats.append(f'{self.groups_count:,} group{"s" if self.groups_count != 1 else ""}')
+            if self.links_count:
+                stats.append(f'{self.links_count:,} link{"s" if self.links_count != 1 else ""}')
+        elif self.import_type == self.TYPE_PARTS_CROSSCODE:
+            if self.parts_count:
+                stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} imported')
+            if self.groups_count:
+                stats.append(f'{self.groups_count:,} group{"s" if self.groups_count != 1 else ""} created')
         if self.error_count:
             label = 'warnings' if self.status == self.STATUS_COMPLETED else 'issues'
             stats.append(f'{self.error_count:,} {label}')

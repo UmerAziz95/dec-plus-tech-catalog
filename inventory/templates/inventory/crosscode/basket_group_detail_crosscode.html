@@ -1,0 +1,346 @@
+{% extends "app_base.html" %}
+
+{% block title %}Basket · {{ active_basket.brand }}{% endblock %}
+{% block page_title %}Basket group{% endblock %}
+{% block breadcrumb %}Home / <a href="{% url 'inventory:basket_crosscode' %}">Basket</a> / {{ active_basket.brand }}{% endblock %}
+
+{% block content %}
+<div class="fade-in basket-group-page">
+    <div class="basket-group-header card">
+        <div class="basket-group-title-row">
+            <div>
+                <h2 class="basket-group-title">{{ active_basket.brand }}</h2>
+                <p class="basket-group-subtitle">Brand number: <strong>{{ active_basket.brand_number|default:"—" }}</strong></p>
+            </div>
+            <a href="{% url 'inventory:basket_crosscode' %}" class="btn btn-secondary">Back to full basket</a>
+        </div>
+    </div>
+
+    <div class="basket-toolbar card basket-group-switcher">
+        {% for group in basket_groups %}
+        <a
+            href="{% url 'inventory:basket_group_detail_crosscode' group.pk %}{% if search_query_string %}?{{ search_query_string }}{% endif %}"
+            class="btn basket-group-btn{% if group.pk == active_basket.pk %} is-active{% endif %}"
+        >
+            <span class="basket-group-btn-brand">{{ group.brand }}</span>
+            <span class="basket-group-btn-sep">|</span>
+            <span class="basket-group-btn-number">{{ group.brand_number|default:"—" }}</span>
+            <span class="basket-group-btn-count">{{ group.item_count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if group_total_count > 0 %}
+    <div class="card basket-search-card">
+        <form method="get" action="" class="basket-search-form" id="basket-group-search-form">
+            <div class="search-bar basket-search-bar">
+                <span class="search-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </span>
+                <input type="text" name="q" id="basket-group-search-input" class="form-input" placeholder="Search part number, car model, car ID..." value="{{ query }}" autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span>Search</span>
+            </button>
+            {% if query %}
+            <a href="{% url 'inventory:basket_group_detail_crosscode' active_basket.pk %}" class="btn btn-secondary btn-lg">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="results-summary" style="margin-bottom: var(--space-md); padding: 0 var(--space-xs);">
+        <div class="results-info">
+            {% if searched %}
+            <span class="results-count">{{ filtered_count }}</span> match{{ filtered_count|pluralize }} in this group
+            <span class="results-divider">|</span>
+            <span>{{ group_total_count }} total</span>
+            {% else %}
+            <span class="results-count">{{ group_total_count }}</span> item{{ group_total_count|pluralize }} in this group
+            {% endif %}
+        </div>
+        {% if page_obj.paginator.num_pages > 1 %}
+        <div class="results-page-info">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if has_results %}
+    <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="table-wrapper">
+            <table class="data-table" id="basket-group-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Part number</th>
+                        <th>Car model</th>
+                        <th>Added</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in page_obj %}
+                    <tr class="basket-row">
+                        <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                        <td>
+                            <span class="part-tag">{{ item.part.part_number }}</span>
+                        </td>
+                        <td class="car-model-cell">
+                            <div class="car-model-text">{{ item.car.car_model|default:"—"|truncatechars:70 }}</div>
+                        </td>
+                        <td>
+                            <span class="date-text">{{ item.created_at|date:"M d, Y" }}</span>
+                        </td>
+                        <td class="actions-cell">
+                            <form
+                                method="post"
+                                action="{% url 'inventory:remove_from_basket_crosscode' item.id %}"
+                                class="inline-form"
+                                data-confirm="Remove this item from the group?"
+                                data-confirm-title="Remove item"
+                                data-confirm-ok="Remove"
+                                data-confirm-cancel="Cancel"
+                                data-confirm-tone="danger"
+                            >
+                                {% csrf_token %}
+                                <input type="hidden" name="return_group" value="{{ active_basket.pk }}">
+                                <input type="hidden" name="page" value="{{ page_obj.number }}">
+                                {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+                                <button type="submit" class="btn btn-sm btn-delete" title="Remove">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <div class="pagination-wrapper">
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+            <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page=1" class="page-link" title="First">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+            </a>
+            <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page={{ page_obj.previous_page_number }}" class="page-link">Prev</a>
+            {% endif %}
+            {% for num in page_obj.paginator.page_range %}
+                {% if page_obj.number == num %}
+                <span class="page-link active">{{ num }}</span>
+                {% elif num > page_obj.number|add:"-4" and num < page_obj.number|add:"4" %}
+                <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page={{ num }}" class="page-link">{{ num }}</a>
+                {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page={{ num }}" class="page-link">{{ num }}</a>
+                {% endif %}
+            {% endfor %}
+            {% if page_obj.has_next %}
+            <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page={{ page_obj.next_page_number }}" class="page-link">Next</a>
+            <a href="?{% if search_query_string %}{{ search_query_string }}&{% endif %}page={{ page_obj.paginator.num_pages }}" class="page-link" title="Last">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% elif searched %}
+    <div class="card">
+        <div class="empty-state">
+            <h3 class="empty-state-title">No matches in this group</h3>
+            <p class="empty-state-text">Nothing matches "<strong>{{ query }}</strong>". Try another term or clear the search.</p>
+            <a href="{% url 'inventory:basket_group_detail_crosscode' active_basket.pk %}" class="btn btn-secondary" style="margin-top: var(--space-lg);">Clear search</a>
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card">
+        <div class="empty-state">
+            <h3 class="empty-state-title">This group is empty</h3>
+            <p class="empty-state-text">All items were removed from {{ active_basket.brand }} | {{ active_basket.brand_number|default:"—" }}.</p>
+            <a href="{% url 'inventory:basket_crosscode' %}" class="btn btn-primary" style="margin-top: var(--space-lg);">Back to basket</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .basket-group-header {
+        margin-bottom: var(--space-md);
+        padding: var(--space-lg) var(--space-xl);
+    }
+
+    .basket-group-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-lg);
+        flex-wrap: wrap;
+    }
+
+    .basket-group-title {
+        margin: 0;
+        font-size: var(--font-lg);
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .basket-group-subtitle {
+        margin: var(--space-xs) 0 0;
+        font-size: var(--font-sm);
+        color: var(--text-muted);
+    }
+
+    .basket-group-switcher {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+        align-items: center;
+        padding: var(--space-md) var(--space-lg);
+        margin-bottom: var(--space-md);
+    }
+
+    .basket-group-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 0.85rem;
+        border-radius: var(--radius-md);
+        font-size: var(--font-sm);
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--surface-muted, #f8fafc);
+        border: 1px solid var(--card-border);
+        text-decoration: none;
+        transition: all var(--t-fast);
+    }
+
+    .basket-group-btn:hover {
+        color: var(--text-primary);
+        background: var(--card-bg-hover);
+        border-color: #cbd5e1;
+    }
+
+    .basket-group-btn.is-active {
+        color: var(--accent-light);
+        background: var(--accent-dim);
+        border-color: rgba(228, 0, 43, 0.35);
+    }
+
+    .basket-group-btn-brand {
+        font-weight: 600;
+        color: #fbbf24;
+    }
+
+    .basket-group-btn-sep {
+        color: var(--text-dim);
+    }
+
+    .basket-group-btn-number {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: var(--font-xs);
+    }
+
+    .basket-group-btn-count {
+        margin-left: 4px;
+        padding: 1px 6px;
+        border-radius: var(--radius-sm);
+        font-size: var(--font-xs);
+        background: var(--surface-muted, #f1f5f9);
+        color: var(--text-muted);
+    }
+
+    .basket-search-card {
+        margin-bottom: var(--space-md);
+        padding: var(--space-lg);
+    }
+
+    .basket-search-form {
+        display: flex;
+        align-items: end;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .basket-search-bar {
+        flex: 1 1 280px;
+        min-width: 0;
+    }
+
+    .results-divider {
+        margin: 0 var(--space-sm);
+        color: var(--text-dim);
+    }
+
+    .results-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+    }
+
+    .results-info { font-size: var(--font-sm); color: var(--text-secondary); }
+    .results-count { font-weight: 700; color: var(--accent-light); font-size: var(--font-lg); }
+    .results-page-info { font-size: var(--font-xs); color: var(--text-muted); }
+
+    .part-tag {
+        display: inline-flex;
+        padding: 2px 8px;
+        background: var(--accent-dim);
+        color: var(--accent-light);
+        border-radius: var(--radius-sm);
+        font-size: var(--font-xs);
+        font-weight: 500;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    .car-model-cell { max-width: 420px; }
+    .car-model-text { font-weight: 500; color: var(--text-primary); font-size: var(--font-sm); }
+    .car-id-text { font-size: var(--font-xs); color: var(--text-dim); margin-top: 2px; font-family: 'SF Mono', 'Fira Code', monospace; }
+    .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
+    .date-text { font-size: var(--font-xs); color: var(--text-dim); white-space: nowrap; }
+    .actions-cell { display: flex; gap: 4px; }
+    .inline-form { display: inline; }
+
+    .btn-delete {
+        background: rgba(244, 63, 94, 0.1);
+        color: #f87171;
+        border: 1px solid rgba(244, 63, 94, 0.2);
+    }
+    .btn-delete:hover {
+        background: rgba(244, 63, 94, 0.2);
+        border-color: rgba(244, 63, 94, 0.4);
+    }
+
+    .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
+    .pagination { display: flex; align-items: center; gap: 4px; }
+    .page-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.4rem 0.75rem;
+        border-radius: var(--radius-md);
+        font-size: var(--font-sm);
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        text-decoration: none;
+        transition: all var(--t-fast);
+    }
+    .page-link:hover { background: var(--card-bg-hover); color: var(--text-primary); }
+    .page-link.active { background: var(--accent-dim); color: var(--accent-light); border-color: rgba(228, 0, 43, 0.3); }
+
+    @media (max-width: 768px) {
+        .basket-search-form { flex-direction: column; align-items: stretch; }
+        .basket-search-bar { width: 100%; }
+    }
+</style>
+{% endblock %}

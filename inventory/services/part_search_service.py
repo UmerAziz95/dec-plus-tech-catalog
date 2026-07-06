@@ -1,9 +1,11 @@
 import openpyxl
 from django.conf import settings
-from django.db import connection
 
-from inventory.models import BasketItem, Car, CarGroup, Part
-from inventory.services.basket_service import BasketService
+from inventory.models import (
+    BasketItem, BasketItemCrossCode, Car, CarCrossCode, CarGroup, CarGroupCrossCode,
+    Part, PartCrossCode,
+)
+from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import (
     filter_parts_exact,
     filter_parts_contains,
@@ -12,22 +14,27 @@ from inventory.services.part_number_utils import (
 
 
 class PartSearchService:
-    # loading millions of rows into memory on very broad matches.
-    @staticmethod
-    def build_results(query):
+    car_model = Car
+    car_group_model = CarGroup
+    part_model = Part
+    basket_item_model = BasketItem
+    basket_service = BasketService
+
+    @classmethod
+    def build_results(cls, query):
         query = sanitize_part_number(query)
         if not query:
             return []
 
         # ── Step 1: Find matching parts ──────────────────────────────
         # Try exact match first (uses B-tree index — instant).
-        matching_parts = list(filter_parts_exact(query))
+        matching_parts = list(filter_parts_exact(query, model=cls.part_model))
 
         # Fall back to substring match only if exact match found nothing.
         # Uses GIN trigram index — still fast on 135M rows.
         if not matching_parts:
             matching_parts = list(
-                filter_parts_contains(query)[:10000]  # Cap to prevent memory blow-up
+                filter_parts_contains(query, model=cls.part_model)[:10000]  # Cap to prevent memory blow-up
             )
 
         if not matching_parts:
@@ -45,7 +52,7 @@ class PartSearchService:
         # ── Step 3: Fetch car_groups → cars in one efficient query ────
         # Uses the composite index idx_cargroups_groupid_carid
         car_groups = (
-            CarGroup.objects
+            cls.car_group_model.objects
             .filter(group_id__in=group_ids)
             .values_list('group_id', 'car_id')
             .distinct()
@@ -65,7 +72,7 @@ class PartSearchService:
         # ── Step 4: Fetch car details ────────────────────────────────
         # CarGroup.car_id actually stores the Car primary key (as text),
         # not the business Car.car_id string — filter/lookup by pk.
-        cars = Car.objects.filter(id__in=list(car_id_set))
+        cars = cls.car_model.objects.filter(id__in=list(car_id_set))
         cars_by_car_id = {str(c.id): c for c in cars}
 
         # ── Step 5: Assemble results ─────────────────────────────────
@@ -95,9 +102,9 @@ class PartSearchService:
         # Return all results without capping
         return results
 
-    @staticmethod
-    def add_results_to_basket(user, results, brand, brand_number):
-        brand, brand_number = BasketService.normalize_cross_brand_fields(brand, brand_number)
+    @classmethod
+    def add_results_to_basket(cls, user, results, brand, brand_number):
+        brand, brand_number = cls.basket_service.normalize_cross_brand_fields(brand, brand_number)
         part_numbers = set()
         for item in results:
             for part in item['parts']:
@@ -106,8 +113,8 @@ class PartSearchService:
         if not part_numbers:
             return 0
 
-        existing_keys = BasketService.existing_item_keys(user, part_numbers)
-        basket, _created = BasketService.get_or_create_basket(brand, brand_number)
+        existing_keys = cls.basket_service.existing_item_keys(user, part_numbers)
+        basket, _created = cls.basket_service.get_or_create_basket(brand, brand_number)
 
         entries = []
         pending_keys = set()
@@ -120,7 +127,7 @@ class PartSearchService:
                 if key in existing_keys or key in pending_keys:
                     continue
                 pending_keys.add(key)
-                entries.append(BasketItem(
+                entries.append(cls.basket_item_model(
                     user=user,
                     car=car,
                     part=part,
@@ -129,7 +136,7 @@ class PartSearchService:
                 ))
 
         for offset in range(0, len(entries), batch_size):
-            BasketItem.objects.bulk_create(entries[offset:offset + batch_size], ignore_conflicts=True)
+            cls.basket_item_model.objects.bulk_create(entries[offset:offset + batch_size], ignore_conflicts=True)
 
         return len(entries)
 
@@ -165,3 +172,11 @@ class PartSearchService:
                 parts_joined,
             ])
         return workbook
+
+
+class PartSearchServiceCrossCode(PartSearchService):
+    car_model = CarCrossCode
+    car_group_model = CarGroupCrossCode
+    part_model = PartCrossCode
+    basket_item_model = BasketItemCrossCode
+    basket_service = BasketServiceCrossCode

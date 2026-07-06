@@ -18,11 +18,13 @@
 
         <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
 
-            Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
+            Accepts .xlsx, .xlsm, .xls, and .csv files. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
 
         </p>
 
 
+
+        <span class="section-heading" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
 
         <div class="import-type-grid">
 
@@ -47,11 +49,12 @@
 
                         </span>
 
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
 
                     </div>
 
                     <button type="submit" class="btn btn-primary">Start cars import</button>
+                    <a href="{% url 'inventory:cars_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
 
                 </form>
 
@@ -84,11 +87,12 @@
 
                         </span>
 
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
 
                     </div>
 
                     <button type="submit" class="btn btn-primary">Start groups import</button>
+                    <a href="{% url 'inventory:groups_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
 
                 </form>
 
@@ -121,11 +125,12 @@
 
                         </span>
 
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
 
                     </div>
 
                     <button type="submit" class="btn btn-primary">Start parts import</button>
+                    <a href="{% url 'inventory:parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
 
                 </form>
 
@@ -158,17 +163,150 @@
 
                         </span>
 
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
 
                     </div>
 
                     <button type="submit" class="btn btn-primary">Start import</button>
+                    <a href="{% url 'inventory:car_with_parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
 
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
                 </div>
                 {% include "inventory/partials/import_history_list.html" with history=car_with_parts_import_history import_history_type="car_with_parts" csrf_token=csrf_token only %}
+                </div>
+            </section>
+
+            <section class="import-type-card">
+                <div class="import-type-main" style="width: 100%;">
+                <h3 class="import-type-title">5. Add a part manually</h3>
+
+                <p class="import-type-text">Attach one part number to a car that's already been imported. Start typing the car model to pick it from what's already in the system.</p>
+
+                <form method="post" action="{% url 'inventory:manual_add_part' %}" class="manual-add-form">
+                    {% csrf_token %}
+                    <div class="form-group manual-add-autocomplete">
+                        <label class="form-label" for="manual-add-car-model">Car model <span class="required-mark">*</span></label>
+                        <input type="text" name="car_model" id="manual-add-car-model" class="form-input" placeholder="Start typing a car model..." autocomplete="off" required maxlength="500" data-suggestions-url="{% url 'inventory:manual_add_suggestions' %}">
+                        <div class="manual-add-suggestions" id="manual-add-suggestions" hidden></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="manual-add-part-number">Part number <span class="required-mark">*</span></label>
+                        <input type="text" name="part_number" id="manual-add-part-number" class="form-input" required maxlength="100">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add part</button>
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+            </section>
+
+        </div>
+
+        <span class="section-heading" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
+
+        <div class="import-type-grid">
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">6. Cross Code car models</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>CarId</strong> sheet only. Same format as Cross Car's car models, stored in a separate Cross Code catalog.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="import_type" value="cars_crosscode">
+                    <div class="search-bar" style="flex: 1;">
+                        <span class="search-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </span>
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Start cars import</button>
+                    <a href="{% url 'inventory:cars_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=cars_crosscode_import_history import_history_type="cars_crosscode" csrf_token=csrf_token only %}
+                </div>
+            </section>
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">7. Cross Code groups and links</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>carId &amp; GroupId</strong> sheet only. Import Cross Code car models first so links can be created.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="import_type" value="groups_crosscode">
+                    <div class="search-bar" style="flex: 1;">
+                        <span class="search-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </span>
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Start groups import</button>
+                    <a href="{% url 'inventory:groups_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=groups_crosscode_import_history import_history_type="groups_crosscode" csrf_token=csrf_token only %}
+                </div>
+            </section>
+
+            <section class="import-type-card">
+                <div class="import-type-layout">
+                <div class="import-type-main">
+                <h3 class="import-type-title">8. Cross Code part numbers</h3>
+
+                <p class="import-type-text">Upload a workbook with the <strong>groupId &amp; part_number</strong> sheet only. Groups are created from the file when missing.</p>
+
+                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
+                    {% csrf_token %}
+                    <input type="hidden" name="import_type" value="parts_crosscode">
+                    <div class="search-bar" style="flex: 1;">
+                        <span class="search-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </span>
+                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Start parts import</button>
+                    <a href="{% url 'inventory:parts_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
+                </div>
+                {% include "inventory/partials/import_history_list.html" with history=parts_crosscode_import_history import_history_type="parts_crosscode" csrf_token=csrf_token only %}
+                </div>
+            </section>
+
+            <section class="import-type-card">
+                <div class="import-type-main" style="width: 100%;">
+                <h3 class="import-type-title">9. Add a Cross Code part manually</h3>
+
+                <p class="import-type-text">Attach one part number to a Cross Code car that's already been imported. Start typing the car model to pick it from what's already in the system.</p>
+
+                <form method="post" action="{% url 'inventory:manual_add_part_crosscode' %}" class="manual-add-form">
+                    {% csrf_token %}
+                    <div class="form-group manual-add-autocomplete">
+                        <label class="form-label" for="manual-add-car-model-cc">Car model <span class="required-mark">*</span></label>
+                        <input type="text" name="car_model" id="manual-add-car-model-cc" class="form-input" placeholder="Start typing a car model..." autocomplete="off" required maxlength="500" data-suggestions-url="{% url 'inventory:manual_add_suggestions_crosscode' %}">
+                        <div class="manual-add-suggestions" id="manual-add-suggestions-cc" hidden></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="manual-add-part-number-cc">Part number <span class="required-mark">*</span></label>
+                        <input type="text" name="part_number" id="manual-add-part-number-cc" class="form-input" required maxlength="100">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add part</button>
+                </form>
+
+                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
                 </div>
             </section>
 
@@ -432,6 +570,53 @@
         border: 1px solid rgba(244, 63, 94, 0.2);
     }
 
+    .required-mark { color: var(--error); }
+
+    .manual-add-form {
+        display: flex;
+        align-items: end;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .manual-add-form .form-group {
+        flex: 1 1 260px;
+        margin-bottom: 0;
+        position: relative;
+    }
+
+    .manual-add-autocomplete {
+        position: relative;
+    }
+
+    .manual-add-suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        margin-top: 4px;
+        max-height: 220px;
+        overflow-y: auto;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+    }
+
+    .manual-add-suggestion-item {
+        padding: 0.5rem 0.85rem;
+        font-size: var(--font-sm);
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+
+    .manual-add-suggestion-item:hover,
+    .manual-add-suggestion-item.is-active {
+        background: var(--accent-dim);
+        color: var(--accent-light);
+    }
+
     @media (max-width: 900px) {
         .import-type-layout {
             grid-template-columns: 1fr;
@@ -465,9 +650,11 @@
 
             }
 
-            if (!file.name.toLowerCase().endsWith('.xlsx')) {
+            const allowedExtensions = ['.xlsx', '.xlsm', '.xls', '.csv'];
 
-                return 'Only .xlsx files are allowed.';
+            if (!allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
+
+                return 'Only .xlsx, .xlsm, .xls, or .csv files are allowed.';
 
             }
 
@@ -583,7 +770,7 @@
 
             const pollActive = payload.poll_active || {};
 
-            ['cars', 'groups', 'parts', 'car_with_parts'].forEach(function (type) {
+            ['cars', 'groups', 'parts', 'car_with_parts', 'cars_crosscode', 'groups_crosscode', 'parts_crosscode'].forEach(function (type) {
 
                 const panel = document.querySelector('[data-import-history-panel="' + type + '"]');
 
@@ -731,7 +918,13 @@
 
                     || (type === 'parts' && (key === 'groups' || key === 'parts'))
 
-                    || (type === 'car_with_parts' && (key === 'cars' || key === 'parts'));
+                    || (type === 'car_with_parts' && (key === 'cars' || key === 'parts'))
+
+                    || (type === 'cars_crosscode' && key === 'cars')
+
+                    || (type === 'groups_crosscode' && (key === 'groups' || key === 'links'))
+
+                    || (type === 'parts_crosscode' && (key === 'groups' || key === 'parts'));
 
                 card.style.display = visible ? '' : 'none';
 
@@ -869,6 +1062,67 @@
 
         poll();
 
+    })();
+
+    (function () {
+        function debounce(fn, delay) {
+            let timer = null;
+            return function (...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
+
+        document.querySelectorAll('.manual-add-autocomplete').forEach(function (wrapper) {
+            const input = wrapper.querySelector('input[name="car_model"]');
+            const dropdown = wrapper.querySelector('.manual-add-suggestions');
+            if (!input || !dropdown) return;
+            const suggestionsUrl = input.dataset.suggestionsUrl;
+            if (!suggestionsUrl) return;
+
+            function hideDropdown() {
+                dropdown.hidden = true;
+                dropdown.innerHTML = '';
+            }
+
+            function showSuggestions(items) {
+                if (!items.length) {
+                    hideDropdown();
+                    return;
+                }
+                dropdown.innerHTML = items.map(function (text) {
+                    return '<div class="manual-add-suggestion-item">' + text.replace(/</g, '&lt;') + '</div>';
+                }).join('');
+                dropdown.hidden = false;
+                dropdown.querySelectorAll('.manual-add-suggestion-item').forEach(function (item, idx) {
+                    item.addEventListener('click', function () {
+                        input.value = items[idx];
+                        hideDropdown();
+                        input.focus();
+                    });
+                });
+            }
+
+            const fetchSuggestions = debounce(function (query) {
+                fetch(suggestionsUrl + '?q=' + encodeURIComponent(query), { headers: { 'Accept': 'application/json' } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { showSuggestions(data.suggestions || []); })
+                    .catch(function () { hideDropdown(); });
+            }, 250);
+
+            input.addEventListener('input', function () {
+                const query = input.value.trim();
+                if (query.length < 2) {
+                    hideDropdown();
+                    return;
+                }
+                fetchSuggestions(query);
+            });
+
+            input.addEventListener('blur', function () {
+                setTimeout(hideDropdown, 150);
+            });
+        });
     })();
 
 </script>

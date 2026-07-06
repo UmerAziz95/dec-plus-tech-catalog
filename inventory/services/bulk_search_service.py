@@ -1,12 +1,21 @@
 from django.conf import settings
 import openpyxl
 
-from inventory.models import BasketItem, Car, CarGroup, Part
-from inventory.services.basket_service import BasketService
+from inventory.models import (
+    BasketItem, BasketItemCrossCode, Car, CarCrossCode, CarGroup, CarGroupCrossCode,
+    Part, PartCrossCode,
+)
+from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import sanitize_part_number
 
 
 class BulkSearchService:
+    car_model = Car
+    car_group_model = CarGroup
+    part_model = Part
+    basket_item_model = BasketItem
+    basket_service = BasketService
+
     @staticmethod
     def _parse_header_indices(header_row):
         brand_idx = -1
@@ -26,8 +35,8 @@ class BulkSearchService:
 
         return brand_idx, brand_number_idx, part_number_idx
 
-    @staticmethod
-    def _read_rows(sheet, brand_idx, brand_number_idx, part_number_idx):
+    @classmethod
+    def _read_rows(cls, sheet, brand_idx, brand_number_idx, part_number_idx):
         rows_data = []
         part_numbers_to_search = set()
 
@@ -42,7 +51,7 @@ class BulkSearchService:
                 continue
             brand = str(row[brand_idx]).strip() if brand_idx != -1 and row[brand_idx] else ''
             brand_num = str(row[brand_number_idx]).strip() if brand_number_idx != -1 and row[brand_number_idx] else ''
-            brand, brand_num = BasketService.normalize_cross_brand_fields(brand, brand_num)
+            brand, brand_num = cls.basket_service.normalize_cross_brand_fields(brand, brand_num)
 
             rows_data.append({
                 'brand': brand,
@@ -53,13 +62,13 @@ class BulkSearchService:
 
         return rows_data, part_numbers_to_search
 
-    @staticmethod
-    def _load_matches(part_numbers_to_search):
+    @classmethod
+    def _load_matches(cls, part_numbers_to_search):
         # Use the stored generated column part_number_norm with B-tree index.
         # psycopg3 doesn't auto-expand a tuple param into "(a, b, c)" for
         # "IN %s" the way psycopg2 did, so build explicit placeholders.
         placeholders = ', '.join(['%s'] * len(part_numbers_to_search))
-        matching_parts = Part.objects.extra(
+        matching_parts = cls.part_model.objects.extra(
             where=[f"part_number_norm IN ({placeholders})"],
             params=list(part_numbers_to_search),
         ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')
@@ -74,12 +83,12 @@ class BulkSearchService:
             parts_by_part_num[pn].append(part)
             group_pks.add(part.group_id)
 
-        car_groups = CarGroup.objects.filter(group_id__in=group_pks)
+        car_groups = cls.car_group_model.objects.filter(group_id__in=group_pks)
 
         # CarGroup.car_id actually stores the Car primary key (as text),
         # not the business Car.car_id string — filter/lookup by pk.
         car_pks = set(car_groups.values_list('car_id', flat=True))
-        cars = Car.objects.filter(id__in=car_pks)
+        cars = cls.car_model.objects.filter(id__in=car_pks)
         cars_by_car_id = {str(c.id): c for c in cars}
 
         cars_by_group_pk = {}
@@ -93,27 +102,27 @@ class BulkSearchService:
 
         return parts_by_part_num, cars_by_group_pk
 
-    @staticmethod
-    def _existing_basket_keys(user, part_numbers_to_search):
-        return BasketService.existing_item_keys(user, part_numbers_to_search)
+    @classmethod
+    def _existing_basket_keys(cls, user, part_numbers_to_search):
+        return cls.basket_service.existing_item_keys(user, part_numbers_to_search)
 
-    @staticmethod
-    def _build_basket_entries(user, rows_data, parts_by_part_num, cars_by_group_pk, existing_keys):
+    @classmethod
+    def _build_basket_entries(cls, user, rows_data, parts_by_part_num, cars_by_group_pk, existing_keys):
         entries = []
         pending_keys = set()
         batch_size = getattr(settings, 'IMPORT_ROW_BATCH_SIZE', 200)
         brand_pairs = {
-            BasketService.normalize_cross_brand_fields(
+            cls.basket_service.normalize_cross_brand_fields(
                 row_data['brand'],
                 row_data['brand_number'],
             )
             for row_data in rows_data
             if row_data['brand'] and row_data['brand_number']
         }
-        basket_map = BasketService.get_or_create_baskets_for_pairs(brand_pairs)
+        basket_map = cls.basket_service.get_or_create_baskets_for_pairs(brand_pairs)
 
         for row_data in rows_data:
-            brand, brand_number = BasketService.normalize_cross_brand_fields(
+            brand, brand_number = cls.basket_service.normalize_cross_brand_fields(
                 row_data['brand'],
                 row_data['brand_number'],
             )
@@ -133,7 +142,7 @@ class BulkSearchService:
                     if key in existing_keys or key in pending_keys:
                         continue
                     pending_keys.add(key)
-                    entries.append(BasketItem(
+                    entries.append(cls.basket_item_model(
                         user=user,
                         car=car,
                         part=part,
@@ -142,7 +151,7 @@ class BulkSearchService:
                     ))
 
         for offset in range(0, len(entries), batch_size):
-            BasketItem.objects.bulk_create(entries[offset:offset + batch_size], ignore_conflicts=True)
+            cls.basket_item_model.objects.bulk_create(entries[offset:offset + batch_size], ignore_conflicts=True)
 
         return len(entries)
 
@@ -276,13 +285,13 @@ class BulkSearchService:
                 existing_keys,
             )
             placeholders = ', '.join(['%s'] * len(part_numbers_to_search))
-            matched_part_ids = Part.objects.extra(
+            matched_part_ids = cls.part_model.objects.extra(
                 where=[f"part_number_norm IN ({placeholders})"],
                 params=list(part_numbers_to_search),
             ).values_list('id', flat=True)
             basket_part_numbers = {
                 sanitize_part_number(part_number)
-                for part_number in BasketItem.objects.filter(
+                for part_number in cls.basket_item_model.objects.filter(
                     user=user,
                     part_id__in=matched_part_ids,
                 ).values_list('part__part_number', flat=True)
@@ -362,3 +371,11 @@ class BulkSearchService:
                 'Yes' if row.get('in_basket') else 'No',
             ])
         return workbook
+
+
+class BulkSearchServiceCrossCode(BulkSearchService):
+    car_model = CarCrossCode
+    car_group_model = CarGroupCrossCode
+    part_model = PartCrossCode
+    basket_item_model = BasketItemCrossCode
+    basket_service = BasketServiceCrossCode
