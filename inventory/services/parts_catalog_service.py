@@ -29,6 +29,8 @@ class PartsCatalogServiceCrossCode:
             queryset = queryset.filter(
                 Q(part_number__icontains=query)
                 | Q(brand__icontains=query)
+                | Q(product_no__icontains=query)
+                | Q(oe_brand__icontains=query)
                 | Q(group_id__icontains=query)
             )
         return queryset

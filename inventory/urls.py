@@ -17,6 +17,7 @@ urlpatterns = [
     path('import/manual-add/', views.manual_add_part_view, name='manual_add_part'),
     path('import/manual-add/suggestions/', views.manual_add_suggestions_view, name='manual_add_suggestions'),
     path('search/', views.search_part_view, name='search_part'),
+    path('search/suggestions/', views.part_search_suggestions_view, name='part_search_suggestions'),
     path('search/add-all-to-basket/', views.add_search_results_to_basket, name='add_search_results_to_basket'),
     path('search/bulk-missed-export/', views.bulk_search_missed_export_view, name='bulk_search_missed_export'),
     path('search/bulk-sample-export/', views.bulk_search_sample_export_view, name='bulk_search_sample_export'),
@@ -40,6 +41,7 @@ urlpatterns = [
 
     # ── Cross Code ──────────────────────────────────────────────────
     path('crosscode/search/', views_crosscode.search_part_crosscode_view, name='search_part_crosscode'),
+    path('crosscode/search/suggestions/', views_crosscode.part_search_suggestions_crosscode_view, name='part_search_suggestions_crosscode'),
     path('crosscode/search/add-all-to-basket/', views_crosscode.add_search_results_to_basket_crosscode, name='add_search_results_to_basket_crosscode'),
     path('crosscode/search/bulk-missed-export/', views_crosscode.bulk_search_missed_export_crosscode_view, name='bulk_search_missed_export_crosscode'),
     path('crosscode/search/bulk-sample-export/', views_crosscode.bulk_search_sample_export_crosscode_view, name='bulk_search_sample_export_crosscode'),
@@ -47,6 +49,7 @@ urlpatterns = [
     path('crosscode/search/bulk-results-export/', views_crosscode.bulk_search_results_export_crosscode_view, name='bulk_search_results_export_crosscode'),
     path('crosscode/parts/<int:part_id>/update/', views_crosscode.part_update_crosscode_view, name='part_update_crosscode'),
     path('crosscode/parts/<int:part_id>/delete/', views_crosscode.part_delete_crosscode_view, name='part_delete_crosscode'),
+    path('crosscode/cars/<int:car_pk>/update/', views_crosscode.cars_crosscode_update_view, name='cars_crosscode_update'),
     path('crosscode/parts-catalog/', views_crosscode.parts_catalog_crosscode_view, name='parts_catalog_crosscode'),
     path('crosscode/import/sample/cars/', views_crosscode.cars_crosscode_sample_export_view, name='cars_crosscode_sample_export'),
     path('crosscode/import/sample/groups/', views_crosscode.groups_crosscode_sample_export_view, name='groups_crosscode_sample_export'),

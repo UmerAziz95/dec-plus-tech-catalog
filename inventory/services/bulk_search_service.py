@@ -1,5 +1,7 @@
 from django.conf import settings
 import openpyxl
+import tempfile
+from pathlib import Path
 
 from inventory.models import (
     BasketItem, BasketItemCrossCode, Car, CarCrossCode, CarGroup, CarGroupCrossCode,
@@ -7,6 +9,7 @@ from inventory.models import (
 )
 from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import sanitize_part_number
+from inventory.services.spreadsheet_loader import SUPPORTED_EXTENSIONS, load_workbook
 
 
 class BulkSearchService:
@@ -64,20 +67,37 @@ class BulkSearchService:
 
     @classmethod
     def _load_matches(cls, part_numbers_to_search):
+        """
+        Exact part-number match only for bulk search.
+
+        Normalized equality is required, so searching "54500-8H31"
+        (norm: 545008H31) will NOT match "54500-8H31A" / "54500-8H31B".
+        Manual search keeps its own contains fallback and is unaffected.
+        """
+        if not part_numbers_to_search:
+            return {}, {}
+
         # Use the stored generated column part_number_norm with B-tree index.
         # psycopg3 doesn't auto-expand a tuple param into "(a, b, c)" for
         # "IN %s" the way psycopg2 did, so build explicit placeholders.
-        placeholders = ', '.join(['%s'] * len(part_numbers_to_search))
+        search_keys = {sanitize_part_number(p) for p in part_numbers_to_search if p}
+        search_keys.discard('')
+        if not search_keys:
+            return {}, {}
+
+        placeholders = ', '.join(['%s'] * len(search_keys))
         matching_parts = cls.part_model.objects.extra(
             where=[f"part_number_norm IN ({placeholders})"],
-            params=list(part_numbers_to_search),
+            params=list(search_keys),
         ).order_by('part_number', 'group_id').distinct('part_number', 'group_id')
 
         parts_by_part_num = {}
         group_pks = set()
         for part in matching_parts:
-            # Normalize the part_number to match the search key
+            # Defensive: only accept exact normalized equality.
             pn = sanitize_part_number(part.part_number)
+            if pn not in search_keys:
+                continue
             if pn not in parts_by_part_num:
                 parts_by_part_num[pn] = []
             parts_by_part_num[pn].append(part)
@@ -240,22 +260,37 @@ class BulkSearchService:
 
     @classmethod
     def parse_upload(cls, excel_file):
-        if not excel_file.name.endswith('.xlsx'):
-            return None, 'Please upload a valid .xlsx file.'
+        name = (excel_file.name or '').lower()
+        if not name.endswith(SUPPORTED_EXTENSIONS):
+            allowed = ', '.join(SUPPORTED_EXTENSIONS)
+            return None, f'Please upload a valid file ({allowed}).'
 
+        tmp_path = None
         try:
-            wb = openpyxl.load_workbook(excel_file, data_only=True)
-            sheet = wb.active
-            header_row = [cell.value for cell in sheet[1]]
+            suffix = Path(name).suffix.lower() or '.xlsx'
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                for chunk in excel_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+
+            workbook = load_workbook(tmp_path)
+            sheet = workbook[workbook.sheetnames[0]]
+            header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
             brand_idx, brand_number_idx, part_number_idx = cls._parse_header_indices(header_row)
 
             if part_number_idx == -1:
-                return None, 'Could not find "Part Number" or "Part_number" column in the Excel file.'
+                return None, 'Could not find "Part Number" or "Part_number" column in the file.'
 
             rows_data, _part_numbers = cls._read_rows(sheet, brand_idx, brand_number_idx, part_number_idx)
             return rows_data, None
         except Exception as exc:
             return None, f'Error processing file: {str(exc)}'
+        finally:
+            if tmp_path:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @classmethod
     def run_bulk_search(cls, user, rows_data, save_to_basket=True):
@@ -379,3 +414,202 @@ class BulkSearchServiceCrossCode(BulkSearchService):
     part_model = PartCrossCode
     basket_item_model = BasketItemCrossCode
     basket_service = BasketServiceCrossCode
+
+    @classmethod
+    def run_bulk_search(cls, user, rows_data, save_to_basket=True):
+        if not rows_data:
+            summary = {
+                'searched_count': 0,
+                'found_count': 0,
+                'car_models_matched': 0,
+                'missed_count': 0,
+                'added_to_basket': 0,
+                'missed_rows': [],
+            }
+            return [], summary, None
+
+        part_numbers_to_search = {
+            sanitize_part_number(row['part_number'])
+            for row in rows_data
+            if row.get('part_number')
+        }
+        part_numbers_to_search.discard('')
+        parts_by_part_num, cars_by_group_pk = cls._load_matches(part_numbers_to_search)
+
+        added_to_basket = 0
+        basket_part_numbers = set()
+        if save_to_basket:
+            existing_keys = cls._existing_basket_keys(user, part_numbers_to_search)
+            added_to_basket = cls._build_basket_entries(
+                user,
+                rows_data,
+                parts_by_part_num,
+                cars_by_group_pk,
+                existing_keys,
+            )
+            matched_part_ids = {
+                part.id
+                for parts in parts_by_part_num.values()
+                for part in parts
+            }
+            basket_part_numbers = {
+                sanitize_part_number(part_number)
+                for part_number in cls.basket_item_model.objects.filter(
+                    user=user,
+                    part_id__in=matched_part_ids,
+                ).values_list('part__part_number', flat=True)
+            }
+            for key, parts in parts_by_part_num.items():
+                if any(sanitize_part_number(p.part_number) in basket_part_numbers for p in parts):
+                    basket_part_numbers.add(key)
+
+        matched_car_ids = cls._matched_car_ids(rows_data, parts_by_part_num, cars_by_group_pk)
+        results = cls._build_results(rows_data, parts_by_part_num, cars_by_group_pk, basket_part_numbers)
+
+        missed_rows = []
+        for row_data in rows_data:
+            part_no = sanitize_part_number(row_data['part_number'])
+            brand = row_data['brand']
+            brand_number = row_data['brand_number']
+            if not brand or not brand_number or part_no not in parts_by_part_num:
+                missed_rows.append(row_data)
+
+        summary = cls._build_summary(rows_data, parts_by_part_num, matched_car_ids, missed_rows, added_to_basket)
+        return results, summary, None
+
+    @classmethod
+    def _load_matches(cls, part_numbers_to_search):
+        """
+        Exact match only against Cross Code Code (part_number) or Product No.
+        No cars/groups are required for the flat Cross Code catalog.
+        """
+        from inventory.services.part_number_utils import filter_parts_exact
+
+        parts_by_part_num = {}
+        search_keys = {sanitize_part_number(p) for p in part_numbers_to_search if p}
+        search_keys.discard('')
+        if not search_keys:
+            return {}, {}
+
+        for key in search_keys:
+            found = list(filter_parts_exact(key, model=cls.part_model))
+            if not found:
+                found = list(
+                    cls.part_model.objects.extra(
+                        where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
+                        params=[r'[^A-Za-z0-9]', key],
+                    )[:500]
+                )
+            if found:
+                parts_by_part_num[key] = found
+        return parts_by_part_num, {}
+
+    @classmethod
+    def _build_basket_entries(cls, user, rows_data, parts_by_part_num, cars_by_group_pk, existing_keys):
+        entries = []
+        pending_keys = set()
+        batch_size = getattr(settings, 'IMPORT_ROW_BATCH_SIZE', 200)
+        brand_pairs = {
+            cls.basket_service.normalize_cross_brand_fields(
+                row_data['brand'],
+                row_data['brand_number'],
+            )
+            for row_data in rows_data
+            if row_data['brand'] and row_data['brand_number']
+        }
+        basket_map = cls.basket_service.get_or_create_baskets_for_pairs(brand_pairs)
+
+        for row_data in rows_data:
+            brand, brand_number = cls.basket_service.normalize_cross_brand_fields(
+                row_data['brand'],
+                row_data['brand_number'],
+            )
+            part_no = sanitize_part_number(row_data['part_number'])
+            if not brand or not brand_number:
+                continue
+            found_parts = parts_by_part_num.get(part_no, [])
+            if not found_parts:
+                continue
+            basket = basket_map[(brand, brand_number)]
+            for part in found_parts:
+                key = (part.id, basket.id)
+                if key in existing_keys or key in pending_keys:
+                    continue
+                pending_keys.add(key)
+                entries.append(cls.basket_item_model(
+                    user=user,
+                    car=None,
+                    part=part,
+                    basket=basket,
+                    group_id=part.group_id or part.product_no or '',
+                ))
+
+        for offset in range(0, len(entries), batch_size):
+            cls.basket_item_model.objects.bulk_create(
+                entries[offset:offset + batch_size],
+                ignore_conflicts=True,
+            )
+        return len(entries)
+
+    @staticmethod
+    def _matched_car_ids(rows_data, parts_by_part_num, cars_by_group_pk):
+        return set()
+
+    @staticmethod
+    def _build_results(rows_data, parts_by_part_num, cars_by_group_pk, basket_part_numbers):
+        results = []
+        for row_data in rows_data:
+            part_no = sanitize_part_number(row_data['part_number'])
+            brand = row_data['brand']
+            brand_number = row_data['brand_number']
+            found_parts = parts_by_part_num.get(part_no, [])
+            if not brand or not brand_number:
+                results.append({
+                    'brand': brand,
+                    'brand_number': brand_number,
+                    'part_number': part_no,
+                    'status': 'Skipped',
+                    'car_count': 0,
+                    'top_cars': [],
+                    'in_basket': False,
+                })
+                continue
+            if found_parts:
+                results.append({
+                    'brand': brand,
+                    'brand_number': brand_number,
+                    'part_number': part_no,
+                    'status': 'Found',
+                    'car_count': len(found_parts),
+                    'top_cars': [
+                        f"{(p.brand or '—')} | {(p.part_number or '—')}"
+                        for p in found_parts[:3]
+                    ],
+                    'in_basket': part_no in basket_part_numbers or any(
+                        sanitize_part_number(p.part_number) in basket_part_numbers
+                        for p in found_parts
+                    ),
+                })
+            else:
+                results.append({
+                    'brand': brand,
+                    'brand_number': brand_number,
+                    'part_number': part_no,
+                    'status': 'Not Found',
+                    'car_count': 0,
+                    'top_cars': [],
+                    'in_basket': False,
+                })
+        return results
+
+    @staticmethod
+    def build_sample_workbook():
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Bulk search-file'
+        sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
+        sheet.append(['Kanoya', 'C13X14', 'PN8807'])
+        sheet.append(['Kanoya', 'C13X15', 'MN102618'])
+        sheet.append(['Kanoya', 'C13X16', '45022-TX4-A01'])
+        sheet.append(['Kanoya', 'C13X17', 'DB1230'])
+        return workbook

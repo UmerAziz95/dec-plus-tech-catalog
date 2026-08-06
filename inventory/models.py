@@ -201,10 +201,17 @@ class CarGroupCrossCode(models.Model):
 
 
 class PartCrossCode(models.Model):
-    """Cross Code's counterpart to Part."""
+    """
+    Cross Code catalog row from the Product Brand / Product No / Brand / Code
+    workbook format. ``brand`` is Product Brand, ``product_no`` is Product No,
+    ``oe_brand`` is Brand, and ``part_number`` is Code (searchable OE/cross code).
+    ``group_id`` is set to Product No so related codes share a group key.
+    """
     group_id = models.TextField(db_index=True, default='')
-    brand = models.TextField(blank=True)
-    part_number = models.TextField(db_index=True)
+    brand = models.TextField(blank=True, help_text='Product Brand (e.g. NIBK)')
+    product_no = models.TextField(blank=True, db_index=True, help_text='Product No (e.g. PN0150W)')
+    oe_brand = models.TextField(blank=True, help_text='OE/cross Brand (e.g. MITSUBISHI)')
+    part_number = models.TextField(db_index=True, help_text='Code (e.g. 4605A049)')
 
     import_batch = models.ForeignKey(
         'ImportBatch',
@@ -221,12 +228,13 @@ class PartCrossCode(models.Model):
         db_table = 'parts_crosscode'
         indexes = [
             models.Index(fields=['group_id', 'part_number'], name='idx_group_part_crosscode'),
+            models.Index(fields=['brand', 'product_no'], name='idx_product_crosscode'),
         ]
         verbose_name = 'Cross Code Part'
         verbose_name_plural = 'Cross Code Parts'
 
     def __str__(self):
-        return f"{self.part_number} ({self.brand})"
+        return f"{self.brand} {self.product_no} → {self.oe_brand} {self.part_number}".strip()
 
 
 class Basket(models.Model):
@@ -339,7 +347,11 @@ class BasketCrossCode(models.Model):
 
 
 class BasketItemCrossCode(models.Model):
-    """Cross Code's counterpart to BasketItem."""
+    """
+    Cross Code basket line. Grouped under BasketCrossCode (brand name + brand
+    number). Points at a PartCrossCode row; car is optional/legacy because the
+    Cross Code catalog is flat Product Brand / Product No / Brand / Code.
+    """
     basket = models.ForeignKey(
         BasketCrossCode,
         on_delete=models.CASCADE,
@@ -354,6 +366,8 @@ class BasketItemCrossCode(models.Model):
         CarCrossCode,
         on_delete=models.CASCADE,
         related_name='basket_items',
+        null=True,
+        blank=True,
     )
     part = models.ForeignKey(
         PartCrossCode,
@@ -376,13 +390,13 @@ class BasketItemCrossCode(models.Model):
         verbose_name_plural = 'Cross Code Basket items'
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'car', 'part', 'basket'],
-                name='uniq_basket_item_crosscode_user_car_part_basket',
+                fields=['user', 'part', 'basket'],
+                name='uniq_basket_item_crosscode_user_part_basket',
             ),
         ]
 
     def __str__(self):
-        return f'{self.basket} | {self.part.part_number} | {self.car.car_id}'
+        return f'{self.basket} | {self.part.part_number}'
 
     @property
     def brand(self):
@@ -419,7 +433,7 @@ class ImportBatch(models.Model):
         (TYPE_CAR_WITH_PARTS, 'Car with parts'),
         (TYPE_CARS_CROSSCODE, 'Cross Code car models'),
         (TYPE_GROUPS_CROSSCODE, 'Cross Code groups and links'),
-        (TYPE_PARTS_CROSSCODE, 'Cross Code part numbers'),
+        (TYPE_PARTS_CROSSCODE, 'Cross Code references'),
     ]
 
     uploaded_by = models.ForeignKey(

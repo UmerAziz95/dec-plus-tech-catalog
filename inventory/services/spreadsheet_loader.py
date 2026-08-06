@@ -50,22 +50,37 @@ def _load_xls_workbook(path):
 
 
 def _read_csv_rows(path):
-    for encoding in ('utf-8-sig', 'latin-1'):
+    last_error = None
+    for encoding in ('utf-8-sig', 'utf-8', 'latin-1'):
         try:
             with open(path, newline='', encoding=encoding) as fh:
-                return [tuple(row) for row in csv.reader(fh)]
-        except UnicodeDecodeError:
+                sample = fh.read(65536)
+                fh.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                except csv.Error:
+                    dialect = csv.excel
+                return [tuple(row) for row in csv.reader(fh, dialect)]
+        except UnicodeDecodeError as exc:
+            last_error = exc
             continue
+    if last_error:
+        raise ValueError('Could not decode CSV file (unsupported text encoding).') from last_error
     raise ValueError('Could not decode CSV file (unsupported text encoding).')
 
 
 def _load_csv_workbook(path):
+    # Import code resolves sheets by alias and falls back to the first sheet,
+    # so a single-sheet CSV works for every import type (Cross Car + Cross Code).
     return _RowsWorkbook({'CSV': _read_csv_rows(path)})
 
 
 def load_workbook(path):
     """Open .xlsx/.xlsm/.xls/.csv and return an openpyxl-Workbook-like object."""
     suffix = Path(path).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        allowed = ', '.join(SUPPORTED_EXTENSIONS)
+        raise ValueError(f'Unsupported file type. Allowed: {allowed}')
     if suffix == '.csv':
         return _load_csv_workbook(path)
     if suffix == '.xls':

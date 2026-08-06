@@ -18,13 +18,22 @@
 
         <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
 
-            Accepts .xlsx, .xlsm, .xls, and .csv files. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Car and Cross Code imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
 
         </p>
 
 
 
-        <span class="section-heading" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
+        <div class="import-fast-move" role="navigation" aria-label="Jump to import section">
+            <span class="import-fast-move-label">Jump to</span>
+            <a href="{% url 'inventory:import_data' %}?catalog=cars#cross-car-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'cars' %} is-active{% endif %}">Cross Car</a>
+            <a href="{% url 'inventory:import_data' %}?catalog=crosscode#cross-code-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'crosscode' %} is-active{% endif %}">Cross Code</a>
+            <a href="#cross-code-import" class="btn btn-secondary btn-sm import-fast-move-btn">CC Import</a>
+            <a href="#cross-code-manual" class="btn btn-secondary btn-sm import-fast-move-btn">CC Manual</a>
+            <a href="#import-data-page" class="btn btn-secondary btn-sm import-fast-move-btn">Top</a>
+        </div>
+
+        <span class="section-heading" id="cross-car-section" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
 
         <div class="import-type-grid">
 
@@ -204,68 +213,24 @@
 
         </div>
 
-        <span class="section-heading" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
+        <span class="section-heading" id="cross-code-section" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
 
         <div class="import-type-grid">
 
-            <section class="import-type-card">
+            <section class="import-type-card" id="cross-code-import">
                 <div class="import-type-layout">
                 <div class="import-type-main">
-                <h3 class="import-type-title">6. Cross Code car models</h3>
+                <h3 class="import-type-title">6. Import Cross Code Excel</h3>
 
-                <p class="import-type-text">Upload a workbook with the <strong>CarId</strong> sheet only. Same format as Cross Car's car models, stored in a separate Cross Code catalog.</p>
-
-                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
-                    {% csrf_token %}
-                    <input type="hidden" name="import_type" value="cars_crosscode">
-                    <div class="search-bar" style="flex: 1;">
-                        <span class="search-icon">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        </span>
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Start cars import</button>
-                    <a href="{% url 'inventory:cars_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
-                </form>
-
-                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=cars_crosscode_import_history import_history_type="cars_crosscode" csrf_token=csrf_token only %}
-                </div>
-            </section>
-
-            <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
-                <h3 class="import-type-title">7. Cross Code groups and links</h3>
-
-                <p class="import-type-text">Upload a workbook with the <strong>carId &amp; GroupId</strong> sheet only. Import Cross Code car models first so links can be created.</p>
-
-                <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
-                    {% csrf_token %}
-                    <input type="hidden" name="import_type" value="groups_crosscode">
-                    <div class="search-bar" style="flex: 1;">
-                        <span class="search-icon">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        </span>
-                        <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Start groups import</button>
-                    <a href="{% url 'inventory:groups_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
-                </form>
-
-                <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=groups_crosscode_import_history import_history_type="groups_crosscode" csrf_token=csrf_token only %}
-                </div>
-            </section>
-
-            <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
-                <h3 class="import-type-title">8. Cross Code part numbers</h3>
-
-                <p class="import-type-text">Upload a workbook with the <strong>groupId &amp; part_number</strong> sheet only. Groups are created from the file when missing.</p>
+                <p class="import-type-text">
+                    Upload a workbook with columns
+                    <strong>Product Brand</strong>,
+                    <strong>Product No</strong>,
+                    <strong>Brand</strong>, and
+                    <strong>Code</strong>
+                    (same layout as <em>Cross code example.xlsx</em>).
+                    Duplicate rows in the file and rows already in the database are skipped. Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong>.
+                </p>
 
                 <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
                     {% csrf_token %}
@@ -276,8 +241,8 @@
                         </span>
                         <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
                     </div>
-                    <button type="submit" class="btn btn-primary">Start parts import</button>
-                    <a href="{% url 'inventory:parts_crosscode_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    <button type="submit" class="btn btn-primary">Start Cross Code import</button>
+                    <a href="{% url 'inventory:parts_crosscode_sample_export' %}" class="btn btn-secondary" title="Download Cross code example sample">Sample</a>
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
@@ -286,24 +251,35 @@
                 </div>
             </section>
 
-            <section class="import-type-card">
+            <section class="import-type-card" id="cross-code-manual">
                 <div class="import-type-main" style="width: 100%;">
-                <h3 class="import-type-title">9. Add a Cross Code part manually</h3>
+                <h3 class="import-type-title">7. Add a Cross Code row manually</h3>
 
-                <p class="import-type-text">Attach one part number to a Cross Code car that's already been imported. Start typing the car model to pick it from what's already in the system.</p>
+                <p class="import-type-text">Add one Product Brand / Product No / Brand / Code row without uploading a file.</p>
 
-                <form method="post" action="{% url 'inventory:manual_add_part_crosscode' %}" class="manual-add-form">
+                <form method="post" action="{% url 'inventory:manual_add_part_crosscode' %}" class="manual-add-form manual-add-crosscode-form">
                     {% csrf_token %}
-                    <div class="form-group manual-add-autocomplete">
-                        <label class="form-label" for="manual-add-car-model-cc">Car model <span class="required-mark">*</span></label>
-                        <input type="text" name="car_model" id="manual-add-car-model-cc" class="form-input" placeholder="Start typing a car model..." autocomplete="off" required maxlength="500" data-suggestions-url="{% url 'inventory:manual_add_suggestions_crosscode' %}">
-                        <div class="manual-add-suggestions" id="manual-add-suggestions-cc" hidden></div>
+                    <div class="manual-add-crosscode-grid">
+                        <div class="form-group manual-add-autocomplete">
+                            <label class="form-label" for="manual-add-product-brand-cc">Product Brand <span class="required-mark">*</span></label>
+                            <input type="text" name="product_brand" id="manual-add-product-brand-cc" class="form-input" placeholder="e.g. NIBK" autocomplete="off" required maxlength="100" data-suggestions-url="{% url 'inventory:manual_add_suggestions_crosscode' %}?field=product_brand">
+                            <div class="manual-add-suggestions" id="manual-add-suggestions-brand-cc" hidden></div>
+                        </div>
+                        <div class="form-group manual-add-autocomplete">
+                            <label class="form-label" for="manual-add-product-no-cc">Product No <span class="required-mark">*</span></label>
+                            <input type="text" name="product_no" id="manual-add-product-no-cc" class="form-input" placeholder="e.g. PN0150W" autocomplete="off" required maxlength="100" data-suggestions-url="{% url 'inventory:manual_add_suggestions_crosscode' %}?field=product_no">
+                            <div class="manual-add-suggestions" id="manual-add-suggestions-product-cc" hidden></div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="manual-add-oe-brand-cc">Brand</label>
+                            <input type="text" name="oe_brand" id="manual-add-oe-brand-cc" class="form-input" placeholder="e.g. MITSUBISHI" maxlength="100">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="manual-add-code-cc">Code <span class="required-mark">*</span></label>
+                            <input type="text" name="code" id="manual-add-code-cc" class="form-input" placeholder="e.g. 4605A049" required maxlength="100">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label" for="manual-add-part-number-cc">Part number <span class="required-mark">*</span></label>
-                        <input type="text" name="part_number" id="manual-add-part-number-cc" class="form-input" required maxlength="100">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Add part</button>
+                    <button type="submit" class="btn btn-primary">Add row</button>
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
@@ -413,6 +389,61 @@
 {% block extra_css %}
 
 <style>
+
+    .import-fast-move {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-sm);
+        margin: 0 0 var(--space-lg);
+        padding: var(--space-sm) var(--space-md);
+        background: var(--surface, #fff);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    .import-fast-move-label {
+        font-size: var(--font-xs);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+        margin-right: var(--space-xs);
+    }
+
+    .import-fast-move-btn {
+        white-space: nowrap;
+    }
+
+    .import-fast-move-btn.is-active {
+        background: var(--accent, #2563eb);
+        border-color: var(--accent, #2563eb);
+        color: #fff;
+    }
+
+    #cross-car-section,
+    #cross-code-section,
+    #cross-code-import,
+    #cross-code-manual {
+        scroll-margin-top: 72px;
+    }
+
+    .manual-add-crosscode-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-md);
+        margin-bottom: var(--space-md);
+    }
+
+    @media (max-width: 720px) {
+        .manual-add-crosscode-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 
     .import-type-grid {
 
@@ -594,9 +625,9 @@
         top: 100%;
         left: 0;
         right: 0;
-        z-index: 20;
+        z-index: 40;
         margin-top: 4px;
-        max-height: 220px;
+        max-height: 280px;
         overflow-y: auto;
         background: var(--card-bg);
         border: 1px solid var(--card-border);
@@ -639,6 +670,15 @@
 {% block extra_js %}
 
 <script>
+
+    (function () {
+        if (window.location.hash) return;
+        var catalog = '{{ import_catalog|default:"cars" }}';
+        var targetId = catalog === 'crosscode' ? 'cross-code-section' : null;
+        if (!targetId) return;
+        var el = document.getElementById(targetId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    })();
 
     (function () {
 
@@ -1080,43 +1120,87 @@
             const suggestionsUrl = input.dataset.suggestionsUrl;
             if (!suggestionsUrl) return;
 
+            let items = [];
+            let activeIndex = -1;
+
             function hideDropdown() {
                 dropdown.hidden = true;
                 dropdown.innerHTML = '';
+                items = [];
+                activeIndex = -1;
             }
 
-            function showSuggestions(items) {
+            function setActive(index) {
+                const nodes = dropdown.querySelectorAll('.manual-add-suggestion-item');
+                if (!nodes.length) return;
+                activeIndex = (index + nodes.length) % nodes.length;
+                nodes.forEach(function (node, idx) {
+                    node.classList.toggle('is-active', idx === activeIndex);
+                });
+                nodes[activeIndex].scrollIntoView({ block: 'nearest' });
+            }
+
+            function selectItem(index) {
+                if (index < 0 || index >= items.length) return;
+                input.value = items[index];
+                hideDropdown();
+                input.focus();
+            }
+
+            function showSuggestions(nextItems) {
+                items = nextItems || [];
+                activeIndex = -1;
                 if (!items.length) {
                     hideDropdown();
                     return;
                 }
                 dropdown.innerHTML = items.map(function (text) {
-                    return '<div class="manual-add-suggestion-item">' + text.replace(/</g, '&lt;') + '</div>';
+                    return '<div class="manual-add-suggestion-item" role="option">' + text.replace(/</g, '&lt;') + '</div>';
                 }).join('');
                 dropdown.hidden = false;
                 dropdown.querySelectorAll('.manual-add-suggestion-item').forEach(function (item, idx) {
-                    item.addEventListener('click', function () {
-                        input.value = items[idx];
-                        hideDropdown();
-                        input.focus();
+                    // mousedown fires before blur, so the click always registers
+                    item.addEventListener('mousedown', function (event) {
+                        event.preventDefault();
+                        selectItem(idx);
                     });
                 });
             }
 
             const fetchSuggestions = debounce(function (query) {
-                fetch(suggestionsUrl + '?q=' + encodeURIComponent(query), { headers: { 'Accept': 'application/json' } })
+                const sep = suggestionsUrl.indexOf('?') >= 0 ? '&' : '?';
+                fetch(suggestionsUrl + sep + 'q=' + encodeURIComponent(query), { headers: { 'Accept': 'application/json' } })
                     .then(function (r) { return r.json(); })
                     .then(function (data) { showSuggestions(data.suggestions || []); })
                     .catch(function () { hideDropdown(); });
-            }, 250);
+            }, 200);
 
-            input.addEventListener('input', function () {
+            function requestForCurrentValue() {
                 const query = input.value.trim();
-                if (query.length < 2) {
+                if (!query.length) {
                     hideDropdown();
                     return;
                 }
                 fetchSuggestions(query);
+            }
+
+            input.addEventListener('input', requestForCurrentValue);
+            input.addEventListener('focus', requestForCurrentValue);
+
+            input.addEventListener('keydown', function (event) {
+                if (dropdown.hidden || !items.length) return;
+                if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setActive(activeIndex + 1);
+                } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setActive(activeIndex <= 0 ? items.length - 1 : activeIndex - 1);
+                } else if (event.key === 'Enter' && activeIndex >= 0) {
+                    event.preventDefault();
+                    selectItem(activeIndex);
+                } else if (event.key === 'Escape') {
+                    hideDropdown();
+                }
             });
 
             input.addEventListener('blur', function () {

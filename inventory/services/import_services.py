@@ -42,10 +42,13 @@ def _parts_column_sets():
 
 
 class ExcelImportService:
-    cars_sheet_aliases = ['cars', 'carid']
-    groups_sheet_aliases = ['groups', 'carid & groupid']
-    parts_sheet_aliases = ['parts', 'groupid & part_number']
-    car_with_parts_sheet_aliases = ['car with parts', 'car_with_parts', 'cars and parts', 'cars & parts']
+    cars_sheet_aliases = ['cars', 'carid', 'csv']
+    groups_sheet_aliases = ['groups', 'carid & groupid', 'csv']
+    parts_sheet_aliases = ['parts', 'groupid & part_number', 'csv']
+    crosscode_sheet_aliases = [
+        'cross code', 'crosscode', 'cross code example', 'product brand', 'csv',
+    ]
+    car_with_parts_sheet_aliases = ['car with parts', 'car_with_parts', 'cars and parts', 'cars & parts', 'csv']
 
     # Cars added via the "Car with parts" flow don't come with real group
     # data, so each car gets one dedicated group (keyed off its own pk) to
@@ -300,28 +303,137 @@ class ExcelImportService:
         )
 
     def _run_parts_crosscode_import(self, batch, workbook, sheet_map, batch_size):
-        sheet_name = self._resolve_sheet(sheet_map, self.parts_sheet_aliases, workbook)
+        sheet_name = self._resolve_sheet(sheet_map, self.crosscode_sheet_aliases, workbook)
         if not sheet_name:
             self._add_error('Workbook', 0, 'No worksheet found in the uploaded file.')
             self._finalize_failed(batch)
             return
 
-        self._update_progress(batch, 'Parsing Cross Code part numbers…')
-        parsed = self._parse_parts_sheet(workbook[sheet_name], sheet_name)
-        if self.errors:
+        self._update_progress(batch, 'Parsing Cross Code references…')
+        parsed = self._parse_crosscode_sheet(workbook[sheet_name], sheet_name)
+        if self.errors and not parsed['rows']:
             self._finalize_failed(batch)
             return
 
-        self._update_progress(batch, 'Saving Cross Code parts…')
-        self._upsert_parts_batched(parsed['parts'], batch, batch_size, model=PartCrossCode)
+        self._update_progress(batch, 'Saving Cross Code references…')
+        saved = self._upsert_crosscode_parts_batched(parsed['rows'], batch, batch_size)
         self._finalize_completed(
             batch,
             total_rows=parsed['total_rows'],
             cars_count=0,
-            groups_count=len(parsed['group_ids']),
+            groups_count=len(parsed['product_nos']),
             links_count=0,
-            parts_count=len(parsed['parts']),
+            parts_count=saved,
         )
+
+    def _parse_crosscode_sheet(self, sheet, sheet_name):
+        """
+        Product Brand | Product No | Brand | Code
+        Header names are preferred; otherwise columns A–D are used in that order.
+        """
+        header_aliases = {
+            'product_brand': ['product brand', 'productbrand', 'product_brand'],
+            'product_no': ['product no', 'productno', 'product_no', 'product number', 'productnumber'],
+            'oe_brand': ['brand', 'oe brand', 'oe_brand', 'cross brand'],
+            'code': ['code', 'cross code', 'crosscode', 'oe code', 'oe_code', 'part number', 'part_number'],
+        }
+        indices = {'product_brand': 0, 'product_no': 1, 'oe_brand': 2, 'code': 3}
+        first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        start_row = 2
+        if first_row:
+            headers = [str(cell or '').strip().lower() for cell in first_row]
+            matched = {}
+            for field, aliases in header_aliases.items():
+                for idx, header in enumerate(headers):
+                    if header in aliases:
+                        # Prefer "product brand" over plain "brand"
+                        if field == 'oe_brand' and header in ('product brand', 'productbrand', 'product_brand'):
+                            continue
+                        if field == 'code' and header in ('product no', 'productno', 'product_no', 'product number'):
+                            continue
+                        matched[field] = idx
+                        break
+            if 'product_brand' in matched and 'code' in matched:
+                indices.update(matched)
+            elif any(h in ('product brand', 'product no', 'brand', 'code') for h in headers):
+                # Partial header match — still treat row 1 as headers
+                indices.update(matched)
+            else:
+                # No recognizable headers: treat first row as data
+                start_row = 1
+
+        rows_by_key = {}
+        product_nos = set()
+        total_rows = 0
+        for row_number, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
+            product_brand = self._sanitize_text(row[indices['product_brand']] if len(row) > indices['product_brand'] else '')
+            product_no = self._sanitize_text(row[indices['product_no']] if len(row) > indices['product_no'] else '')
+            oe_brand = self._sanitize_text(row[indices['oe_brand']] if len(row) > indices['oe_brand'] else '')
+            code = self._sanitize_text(row[indices['code']] if len(row) > indices['code'] else '')
+
+            if not any([product_brand, product_no, oe_brand, code]):
+                continue
+            if not product_brand or not product_no or not code:
+                self._add_error(
+                    sheet_name, row_number,
+                    'Product Brand, Product No, and Code are required.',
+                )
+                continue
+            if None in (product_brand, product_no, oe_brand, code):
+                self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
+                continue
+
+            key = (product_brand, product_no, oe_brand or '', code)
+            rows_by_key[key] = {
+                'brand': product_brand,
+                'product_no': product_no,
+                'oe_brand': oe_brand or '',
+                'part_number': code,
+                'group_id': product_no,
+            }
+            product_nos.add(product_no)
+            total_rows += 1
+
+        return {
+            'rows': list(rows_by_key.values()),
+            'product_nos': product_nos,
+            'total_rows': total_rows,
+        }
+
+    def _upsert_crosscode_parts_batched(self, rows, batch, bs):
+        total = len(rows)
+        saved = 0
+        for start in range(0, total, bs):
+            chunk = rows[start:start + bs]
+            self._update_progress(batch, f'Cross Code {min(start + bs, total)}/{total}')
+            product_nos = {row['product_no'] for row in chunk}
+            codes = {row['part_number'] for row in chunk}
+            existing = {
+                (item.brand, item.product_no, item.oe_brand, item.part_number): item
+                for item in PartCrossCode.objects.filter(
+                    product_no__in=product_nos,
+                    part_number__in=codes,
+                )
+            }
+            to_create = []
+            for row in chunk:
+                key = (row['brand'], row['product_no'], row['oe_brand'], row['part_number'])
+                if key in existing:
+                    continue
+                existing[key] = None
+                to_create.append(PartCrossCode(
+                    group_id=row['group_id'],
+                    brand=row['brand'],
+                    product_no=row['product_no'],
+                    oe_brand=row['oe_brand'],
+                    part_number=row['part_number'],
+                    import_batch=batch,
+                ))
+            if to_create:
+                with transaction.atomic():
+                    PartCrossCode.objects.bulk_create(to_create, batch_size=bs)
+                saved += len(to_create)
+        return saved
 
     def _run_car_with_parts_import(self, batch, workbook, sheet_map, batch_size):
         sheet_name = self._resolve_sheet(sheet_map, self.car_with_parts_sheet_aliases, workbook)
@@ -365,6 +477,7 @@ class ExcelImportService:
 
     def _parse_car_with_parts_sheet(self, sheet, sheet_name):
         rows = []
+        seen_pairs = set()
         car_names = set()
         total_rows = 0
         for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
@@ -378,7 +491,11 @@ class ExcelImportService:
             if car_name is None or part_number is None:
                 self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
                 continue
-            rows.append((car_name, part_number))
+            key = (car_name, part_number)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            rows.append(key)
             car_names.add(car_name)
             total_rows += 1
 
@@ -428,6 +545,7 @@ class ExcelImportService:
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
             group_ids = {group_id for group_id, _ in chunk}
             part_nums = {part_number for _, part_number in chunk}
+            self._remove_duplicate_parts(Part, group_ids, part_nums)
             existing = set(
                 Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
             )
@@ -512,6 +630,12 @@ class ExcelImportService:
             })
             total_rows += 1
 
+        # Drop duplicate car_id rows in the file (last occurrence wins).
+        deduped = {}
+        for row in cars:
+            deduped[row['car_id']] = row
+        cars = list(deduped.values())
+
         return {'cars': cars, 'total_rows': total_rows}
 
     def _parse_groups_sheet(self, groups_sheet, sheet_name):
@@ -539,7 +663,8 @@ class ExcelImportService:
 
     def _parse_parts_sheet(self, parts_sheet, sheet_name):
         group_ids = set()
-        parts = set()
+        # Keep one row per (group_id, part_number); last brand wins.
+        parts_by_key = {}
         total_rows = 0
         for row_number, row in enumerate(parts_sheet.iter_rows(min_row=2, values_only=True), start=2):
             for col_set in _parts_column_sets():
@@ -554,13 +679,13 @@ class ExcelImportService:
                 if brand is None or part_number is None:
                     self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
                     continue
-                parts.add((group_id, brand or '', part_number))
+                parts_by_key[(group_id, part_number)] = (group_id, brand or '', part_number)
                 group_ids.add(group_id)
                 total_rows += 1
 
         return {
             'group_ids': group_ids,
-            'parts': parts,
+            'parts': set(parts_by_key.values()),
             'total_rows': total_rows,
         }
 
@@ -600,7 +725,7 @@ class ExcelImportService:
                     ))
             with transaction.atomic():
                 if to_create:
-                    model.objects.bulk_create(to_create, batch_size=bs)
+                    model.objects.bulk_create(to_create, batch_size=bs, ignore_conflicts=True)
                 if to_update:
                     model.objects.bulk_update(
                         to_update,
@@ -611,7 +736,17 @@ class ExcelImportService:
 
     def _upsert_car_groups_batched(self, links, batch, bs, car_model=Car, group_model=CarGroup):
         car_lookup = dict(car_model.objects.values_list('car_id', 'id'))
-        links_list = list(links)
+        # Deduplicate file/DB pairs before insert.
+        unique_links = []
+        seen = set()
+        for car_id, group_id in links:
+            key = (car_id, group_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_links.append(key)
+
+        links_list = unique_links
         total_pairs = len(links_list)
         links_created = 0
         for start in range(0, total_pairs, bs):
@@ -631,6 +766,25 @@ class ExcelImportService:
             links_created += len(objects)
         return links_created
 
+    def _remove_duplicate_parts(self, model, group_ids, part_nums):
+        """Keep one DB row per (group_id, part_number) for keys in this import."""
+        if not group_ids or not part_nums:
+            return
+        from django.db.models import Count, Min
+
+        duplicates = (
+            model.objects
+            .filter(group_id__in=group_ids, part_number__in=part_nums)
+            .values('group_id', 'part_number')
+            .annotate(row_count=Count('id'), keep_id=Min('id'))
+            .filter(row_count__gt=1)
+        )
+        for item in duplicates.iterator(chunk_size=500):
+            model.objects.filter(
+                group_id=item['group_id'],
+                part_number=item['part_number'],
+            ).exclude(id=item['keep_id']).delete()
+
     def _upsert_parts_batched(self, parts, batch, bs, model=Part):
         parts_list = list(parts)
         total = len(parts_list)
@@ -640,12 +794,20 @@ class ExcelImportService:
             group_ids = set()
             part_nums = set()
             resolved = []
+            seen_keys = set()
             for group_id, brand, part_number in chunk:
+                key = (group_id, part_number)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
                 group_ids.add(group_id)
                 part_nums.add(part_number)
                 resolved.append((group_id, brand, part_number))
             if not resolved:
                 continue
+
+            self._remove_duplicate_parts(model, group_ids, part_nums)
+
             existing = set(
                 model.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
             )
@@ -759,6 +921,21 @@ class ExcelImportService:
         sheet.title = 'groupId & part_number'
         sheet.append(['groupId', 'Brand', 'part_number'])
         sheet.append(['SAMPLE-GROUP-001', 'SampleBrand', 'SAMPLE-PART-001'])
+        return workbook
+
+    @staticmethod
+    def build_crosscode_sample_workbook():
+        """Sample matching the Cross Code Product Brand / Product No / Brand / Code file."""
+        import openpyxl
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Cross Code'
+        sheet.append(['Product Brand', 'Product No', 'Brand', 'Code'])
+        sheet.append(['NIBK', 'PN0150W', 'MITSUBISHI', '4605A049'])
+        sheet.append(['NIBK', 'PN0150W', 'MITSUBISHI', 'MR407376'])
+        sheet.append(['NIBK', 'PN0202', 'CHRYSLER', '05174 327AB'])
+        sheet.append(['NIBK', 'PN0150S', 'CHRYSLER (USA)', '68003 610AA'])
+        sheet.append(['NIBK', 'PN0801', 'CHRYSLER', '4897218AB'])
         return workbook
 
     @staticmethod

@@ -18,35 +18,27 @@
         <span class="section-heading" style="{% if forloop.first %}margin-top: 0; border-top: none; padding-top: 0;{% else %}margin-top: var(--space-xl);{% endif %} margin-bottom: var(--space-md);">{{ module.label }}</span>
 
         <div class="stats-grid" style="margin-bottom: var(--space-lg);">
+            {% for stat in module.stats %}
             <div class="stat-card">
-                <div class="stat-icon-box purple">
+                <div class="stat-icon-box {{ stat.tone }}">
+                    {% if stat.icon == 'car' %}
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M17 17m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0"/><path d="M5 17H3v-6l2-5h9l4 5h1a2 2 0 0 1 2 2v4h-2m-4 0H9m-6-6h15m-6 0V6"/></svg>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Cars</div>
-                    <div class="stat-value">{{ module.total_cars|default:"0" }}</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon-box blue">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Parts</div>
-                    <div class="stat-value">{{ module.total_parts|default:"0" }}</div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="stat-icon-box amber">
+                    {% elif stat.icon == 'basket' %}
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                    {% elif stat.icon == 'brand' %}
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    {% elif stat.icon == 'db' %}
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>
+                    {% else %}
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                    {% endif %}
                 </div>
                 <div class="stat-content">
-                    <div class="stat-label">Basket Items</div>
-                    <div class="stat-value">{{ module.basket_count|default:"0" }}</div>
+                    <div class="stat-label">{{ stat.label }}</div>
+                    <div class="stat-value">{{ stat.value|default:"0" }}</div>
                 </div>
             </div>
+            {% endfor %}
 
             {% if forloop.first %}
             {% for table in extra_tables %}
@@ -93,7 +85,7 @@
                 <div style="font-weight: 600; font-size: var(--font-sm);">Search Book</div>
                 <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Bulk search via Excel</div>
             </a>
-            <a href="{% url 'inventory:import_data' %}" class="card" style="text-align: center; cursor: pointer;">
+            <a href="{% url 'inventory:import_data' %}?catalog=cars" class="card" style="text-align: center; cursor: pointer;">
                 <div style="color: #60a5fa; margin-bottom: var(--space-sm);">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </div>
@@ -108,7 +100,7 @@
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </div>
                 <div style="font-weight: 600; font-size: var(--font-sm);">Search Parts Number</div>
-                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Find cars by part number</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Find Brand / Code by part number</div>
             </a>
             <a href="{% url 'inventory:basket_crosscode' %}" class="card" style="text-align: center; cursor: pointer;">
                 <div style="color: #fbbf24; margin-bottom: var(--space-sm);">
@@ -131,12 +123,12 @@
                 <div style="font-weight: 600; font-size: var(--font-sm);">Brand Names</div>
                 <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Manage brand records</div>
             </a>
-            <a href="{% url 'inventory:import_data' %}" class="card" style="text-align: center; cursor: pointer;">
+            <a href="{% url 'inventory:import_data' %}?catalog=crosscode#cross-code-section" class="card" style="text-align: center; cursor: pointer;">
                 <div style="color: #60a5fa; margin-bottom: var(--space-sm);">
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </div>
                 <div style="font-weight: 600; font-size: var(--font-sm);">Import Data</div>
-                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Upload Cross Code Cars, Groups and Parts</div>
+                <div style="font-size: var(--font-xs); color: var(--text-muted); margin-top: 4px;">Upload Product Brand / Product No / Brand / Code</div>
             </a>
         </div>
         {% endif %}

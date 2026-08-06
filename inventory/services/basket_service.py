@@ -259,5 +259,150 @@ class BasketService:
 
 
 class BasketServiceCrossCode(BasketService):
+    """
+    Cross Code basket: one BasketCrossCode per Brand Name + Brand Number,
+    unique PartCrossCode rows under each (no car required).
+    """
     basket_model = BasketCrossCode
     basket_item_model = BasketItemCrossCode
+
+    @classmethod
+    def get_items_queryset(cls, user):
+        return cls.basket_item_model.objects.filter(
+            user=user,
+        ).select_related('basket', 'part').order_by(
+            'basket__brand', 'basket__brand_number',
+            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number', '-id',
+        ).distinct(
+            'basket__brand', 'basket__brand_number',
+            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number',
+        )
+
+    @classmethod
+    def filter_items_queryset(cls, user, query):
+        queryset = cls.get_items_queryset(user)
+        query = cls.clean_search_query(query)
+        if not query:
+            return queryset
+        return queryset.filter(
+            Q(basket__brand__icontains=query)
+            | Q(basket__brand_number__icontains=query)
+            | Q(part__part_number__icontains=query)
+            | Q(part__brand__icontains=query)
+            | Q(part__product_no__icontains=query)
+            | Q(part__oe_brand__icontains=query)
+        )
+
+    @classmethod
+    def item_exists(cls, user, part, brand, brand_number, car=None):
+        brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
+        return cls.basket_item_model.objects.filter(
+            user=user,
+            part=part,
+            basket__brand=brand,
+            basket__brand_number=brand_number,
+        ).exists()
+
+    @classmethod
+    def add_item(cls, user, part, brand, brand_number, car=None):
+        brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
+        basket, _created = cls.get_or_create_basket(brand, brand_number)
+        item, created = cls.basket_item_model.objects.get_or_create(
+            user=user,
+            part=part,
+            basket=basket,
+            defaults={'group_id': part.group_id or part.product_no or '', 'car': car},
+        )
+        return item, created
+
+    @classmethod
+    def remove_item(cls, item):
+        basket_id = item.basket_id
+        cls.basket_item_model.objects.filter(
+            user=item.user,
+            basket_id=item.basket_id,
+            part_id=item.part_id,
+        ).delete()
+        if not cls.basket_item_model.objects.filter(basket_id=basket_id).exists():
+            cls.basket_model.objects.filter(pk=basket_id).delete()
+
+    @classmethod
+    def remove_duplicates(cls, user):
+        items = cls.basket_item_model.objects.filter(user=user).order_by('id').values_list(
+            'id',
+            'part_id',
+            'basket_id',
+        )
+        seen = set()
+        duplicate_ids = []
+        for item_id, part_id, basket_id in items:
+            key = (part_id, basket_id)
+            if key in seen:
+                duplicate_ids.append(item_id)
+            else:
+                seen.add(key)
+
+        if not duplicate_ids:
+            return 0
+
+        deleted, _ = cls.basket_item_model.objects.filter(user=user, id__in=duplicate_ids).delete()
+        cls.prune_empty_baskets()
+        return deleted
+
+    @classmethod
+    def build_export_workbook(cls, user):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Basket'
+        sheet.append([
+            'Brand Name',
+            'Brand Number',
+            'Product Brand',
+            'Product No',
+            'Brand',
+            'Code',
+        ])
+        for item in cls.get_items_queryset(user):
+            sheet.append([
+                item.basket.brand,
+                item.basket.brand_number,
+                item.part.brand or '',
+                item.part.product_no or '',
+                item.part.oe_brand or '',
+                item.part.part_number,
+            ])
+        return workbook
+
+    @classmethod
+    def existing_item_keys(cls, user, part_numbers):
+        return {
+            (part_id, basket_id)
+            for part_id, basket_id in cls.basket_item_model.objects.filter(
+                user=user,
+                part__part_number__in=part_numbers,
+            ).values_list('part_id', 'basket_id')
+        }
+
+    @classmethod
+    def get_group_items_queryset(cls, user, basket_id):
+        return cls.basket_item_model.objects.filter(
+            user=user,
+            basket_id=basket_id,
+        ).select_related('basket', 'part').order_by(
+            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number', '-id',
+        ).distinct(
+            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number',
+        )
+
+    @classmethod
+    def filter_group_items_queryset(cls, user, basket_id, query):
+        queryset = cls.get_group_items_queryset(user, basket_id)
+        query = cls.clean_search_query(query)
+        if not query:
+            return queryset
+        return queryset.filter(
+            Q(part__part_number__icontains=query)
+            | Q(part__brand__icontains=query)
+            | Q(part__product_no__icontains=query)
+            | Q(part__oe_brand__icontains=query)
+        )

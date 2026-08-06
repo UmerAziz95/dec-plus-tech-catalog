@@ -11,7 +11,7 @@
             <h2 class="panel-title">Search by part number</h2>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
-                    <div class="search-bar" style="flex: 1;">
+                    <div class="search-bar search-autocomplete" style="flex: 1;" data-suggestions-url="{{ part_search_suggestions_url }}">
                         <span class="search-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                         </span>
@@ -24,7 +24,12 @@
                             autocomplete="off"
                             autofocus
                             id="search-input"
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-controls="part-search-suggestions"
+                            aria-expanded="false"
                         >
+                        <div class="part-search-suggestions" id="part-search-suggestions" role="listbox" hidden></div>
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg" id="search-btn">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -42,10 +47,11 @@
 
         <section class="search-tools-block" id="bulk-search-panel">
             <h2 class="panel-title">Bulk search</h2>
+            <p class="panel-subtitle">Exact part-number match only. Partial numbers (for example <code>54500-8H31</code>) will not match longer variants like <code>54500-8H31A</code>. Upload <strong>.xlsx</strong> or <strong>.csv</strong>.</p>
             <div class="card search-card">
-                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
+                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="bulk-search-form">
                     {% csrf_token %}
-                    <div class="search-bar" style="flex: 1;">
+                    <div class="search-bar">
                         <span class="search-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
                         </span>
@@ -53,20 +59,22 @@
                             type="file"
                             name="excel_file"
                             class="form-input"
-                            accept=".xlsx"
+                            accept=".xlsx,.xlsm,.xls,.csv"
                             required
                             id="excel-input"
                             style="padding-top: 10px;"
                         >
                     </div>
-                    <button type="submit" class="btn btn-primary btn-lg" id="upload-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        <span>Upload &amp; Save to basket</span>
-                    </button>
-                    <a href="{% url 'inventory:bulk_search_sample_export' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        <span>Sample</span>
-                    </a>
+                    <div class="bulk-search-actions">
+                        <a href="{% url 'inventory:bulk_search_sample_export' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn" title="Download a sample file">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            <span>Download sample file</span>
+                        </a>
+                        <button type="submit" class="btn btn-primary btn-lg" id="upload-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span>Upload &amp; Save to basket</span>
+                        </button>
+                    </div>
                 </form>
             </div>
         </section>
@@ -237,6 +245,8 @@
                                 <th>Drive</th>
                                 <th>Engine</th>
                                 <th>Part Numbers</th>
+                                <th>Source</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -260,16 +270,33 @@
                                 </td>
                                 <td class="parts-cell">
                                     {% for part in item.parts %}
-                                    <span class="part-tag-group">
-                                        <span class="part-tag">{{ part.part_number }}</span>
-                                        <button type="button" class="part-tag-action part-tag-edit" title="Edit part" data-part-id="{{ part.id }}" data-part-number="{{ part.part_number }}" data-brand="{{ part.brand }}">&#9998;</button>
-                                        <form method="post" action="{% url 'inventory:part_delete' part.id %}" class="inline-form part-tag-delete-form" data-confirm="Delete part {{ part.part_number }}? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="next" value="?q={{ query|urlencode }}&page={{ page_obj.number }}#search-results-panel">
-                                            <button type="submit" class="part-tag-action part-tag-delete" title="Delete part">&#10005;</button>
-                                        </form>
-                                    </span>
+                                    <span class="part-tag">{{ part.part_number }}</span>
                                     {% endfor %}
+                                </td>
+                                <td>
+                                    <span class="source-badge {% if item.source == 'parts-cat.com' %}source-parts-cat{% else %}source-other-db{% endif %}">{{ item.source }}</span>
+                                </td>
+                                <td class="actions-cell">
+                                    <button
+                                        type="button"
+                                        class="btn btn-sm btn-edit row-edit-btn"
+                                        title="Edit or delete this result"
+                                        data-car-id="{{ item.car.car_id }}"
+                                        data-car-pk="{{ item.car.pk }}"
+                                        data-car-model="{{ item.car.car_model }}"
+                                        data-steering="{{ item.car.steering }}"
+                                        data-transmission="{{ item.car.transmission }}"
+                                        data-wd="{{ item.car.wd }}"
+                                        data-engine="{{ item.car.engine }}"
+                                        data-car-parameters="{{ item.car.car_parameters }}"
+                                        data-additional-note="{{ item.car.additional_note }}"
+                                        data-source="{{ item.source }}"
+                                        data-car-update-url="{% if item.source == 'parts-cat.com' %}{% url 'inventory:cars_catalog_update' item.car.pk %}{% else %}{% url 'inventory:cars_crosscode_update' item.car.pk %}{% endif %}"
+                                        data-parts='[{% for part in item.parts %}{"id":{{ part.id }},"part_number":"{{ part.part_number|escapejs }}","brand":"{{ part.brand|escapejs }}","update_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_update' part.id %}{% else %}{% url 'inventory:part_update_crosscode' part.id %}{% endif %}","delete_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_delete' part.id %}{% else %}{% url 'inventory:part_delete_crosscode' part.id %}{% endif %}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        <span>Edit</span>
+                                    </button>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -323,7 +350,11 @@
                         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/></svg>
                     </div>
                     <h3 class="empty-state-title">No results found</h3>
+                    {% if parts_without_vehicles %}
+                    <p class="empty-state-text">Part number "<strong>{{ search_query }}</strong>" exists in the parts table, but it is not linked to any vehicle that still exists. Re-import the matching <strong>car models</strong> and <strong>groups</strong> (or use Car with Parts), then search again.</p>
+                    {% else %}
                     <p class="empty-state-text">No vehicles found matching part number "<strong>{{ search_query }}</strong>". Please check the part number and try again.</p>
+                    {% endif %}
                     {% if query != search_query %}
                     <p class="empty-state-text empty-state-note">Symbols were removed from your search. We looked for <strong>{{ search_query }}</strong>.</p>
                     {% endif %}
@@ -374,6 +405,68 @@
 </div>
 {% endif %}
 
+<div class="modal-overlay" id="row-edit-modal" style="display: none;">
+    <div class="modal-card row-edit-card">
+        <div class="modal-header">
+            <h3 class="modal-title">Edit result</h3>
+            <button type="button" class="modal-close" onclick="closeRowEditModal()" aria-label="Close">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form method="post" id="row-car-edit-form" class="row-car-edit-form">
+                {% csrf_token %}
+                <input type="hidden" name="next" id="row-edit-next" value="">
+                <div class="row-edit-section-title">Vehicle</div>
+                <div class="row-edit-grid">
+                    <div class="form-group">
+                        <label class="form-label">Car ID</label>
+                        <input type="text" class="form-input" id="row-edit-car-id" readonly>
+                    </div>
+                    <div class="form-group row-edit-wide">
+                        <label class="form-label" for="row-edit-car-model">Car model <span class="required-mark">*</span></label>
+                        <input type="text" name="car_model" id="row-edit-car-model" class="form-input" required maxlength="500">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="row-edit-steering">Steering</label>
+                        <input type="text" name="steering" id="row-edit-steering" class="form-input" maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="row-edit-transmission">Transmission</label>
+                        <input type="text" name="transmission" id="row-edit-transmission" class="form-input" maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="row-edit-wd">Drive</label>
+                        <input type="text" name="wd" id="row-edit-wd" class="form-input" maxlength="50">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="row-edit-engine">Engine</label>
+                        <input type="text" name="engine" id="row-edit-engine" class="form-input" maxlength="255">
+                    </div>
+                    <div class="form-group row-edit-wide">
+                        <label class="form-label" for="row-edit-parameters">Parameters</label>
+                        <input type="text" name="car_parameters" id="row-edit-parameters" class="form-input" maxlength="2000">
+                    </div>
+                    <div class="form-group row-edit-wide">
+                        <label class="form-label" for="row-edit-note">Additional note</label>
+                        <textarea name="additional_note" id="row-edit-note" class="form-input" rows="2" maxlength="2000"></textarea>
+                    </div>
+                </div>
+                <div class="row-edit-actions">
+                    <button type="submit" class="btn btn-primary">Save vehicle</button>
+                </div>
+            </form>
+
+            <div class="row-edit-section-title" style="margin-top: var(--space-lg);">Matched parts</div>
+            <p class="row-edit-note">Edit or delete each part number one by one.</p>
+            <div id="row-edit-parts-list" class="row-edit-parts-list"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeRowEditModal()">Close</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="part-edit-modal" style="display: none;">
     <div class="modal-card" style="max-width: 420px;">
         <div class="modal-header">
@@ -409,13 +502,17 @@
 <style>
     .search-tools-grid {
         display: grid;
-        grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-xl);
-        align-items: start;
+        align-items: stretch;
         margin-bottom: var(--space-xl);
     }
 
-    .search-tools-block { min-width: 0; }
+    .search-tools-block {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+    }
 
     .search-results-panel {
         min-width: 0;
@@ -429,7 +526,86 @@
         color: var(--text-primary);
     }
 
-    .search-card,
+    .panel-subtitle {
+        margin: calc(var(--space-md) * -1) 0 var(--space-md);
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+        line-height: 1.45;
+    }
+
+    .panel-subtitle code {
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 0.95em;
+    }
+
+    .search-autocomplete {
+        position: relative;
+    }
+
+    .part-search-suggestions {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 50;
+        max-height: 260px;
+        overflow-y: auto;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+    }
+
+    .part-search-suggestion-item {
+        padding: 0.65rem 0.9rem;
+        font-size: var(--font-sm);
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        color: var(--text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .part-search-suggestion-item:hover,
+    .part-search-suggestion-item.is-active {
+        background: var(--accent-dim);
+        color: var(--accent-light);
+    }
+
+    .search-card {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin-bottom: 0;
+        min-height: 148px;
+        overflow: visible;
+    }
+
+    .search-card .search-form-row,
+    .search-card .bulk-search-form {
+        width: 100%;
+    }
+
+    .bulk-search-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-md);
+    }
+
+    .bulk-search-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-md);
+        flex-wrap: wrap;
+    }
+
+    .bulk-search-actions .btn {
+        flex: 1 1 180px;
+        justify-content: center;
+    }
+
     .panel-card,
     .basket-assign-card {
         margin-bottom: var(--space-md);
@@ -519,13 +695,55 @@
     .brand-name { font-weight: 600; color: #fbbf24; }
     .brand-number-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-xs); color: var(--text-secondary); }
     .badge-red { background: rgba(244, 63, 94, 0.1); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.2); }
-    .actions-cell { display: flex; gap: 4px; }
+    .actions-cell { white-space: nowrap; }
     .btn-edit {
+        display: inline-flex; align-items: center; gap: 4px;
         background: rgba(59, 130, 246, 0.1); color: #60a5fa;
         border: 1px solid rgba(59, 130, 246, 0.2);
     }
     .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
-
+    .row-edit-card { max-width: 720px; }
+    .row-edit-section-title {
+        font-size: var(--font-sm); font-weight: 600; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-md);
+    }
+    .row-edit-note {
+        margin: 0 0 var(--space-md); font-size: var(--font-xs); color: var(--text-muted);
+    }
+    .row-edit-grid {
+        display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--space-md);
+    }
+    .row-edit-wide { grid-column: 1 / -1; }
+    .row-edit-actions { margin-top: var(--space-md); }
+    .row-edit-parts-list { display: grid; gap: var(--space-sm); }
+    .row-edit-part-item {
+        display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
+        padding: 0.65rem 0.85rem; border: 1px solid var(--card-border);
+        border-radius: var(--radius-md); background: var(--surface-muted, #f8fafc);
+    }
+    .row-edit-part-meta { min-width: 0; }
+    .row-edit-part-number {
+        font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-sm);
+        font-weight: 600; color: var(--text-primary);
+    }
+    .row-edit-part-brand {
+        font-size: var(--font-xs); color: var(--text-muted); margin-top: 2px;
+    }
+    .row-edit-part-actions { display: inline-flex; gap: 6px; flex-shrink: 0; }
+    .source-badge {
+        display: inline-flex; align-items: center; padding: 2px 8px;
+        border-radius: var(--radius-sm); font-size: var(--font-xs); font-weight: 600;
+        white-space: nowrap;
+    }
+    .source-parts-cat {
+        background: rgba(16, 185, 129, 0.12); color: #059669;
+        border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .source-other-db {
+        background: rgba(59, 130, 246, 0.12); color: #2563eb;
+        border: 1px solid rgba(59, 130, 246, 0.25);
+    }
     .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
     .pagination { display: flex; align-items: center; gap: 4px; }
     .page-link {
@@ -604,12 +822,121 @@
         .basket-assign-form .form-group,
         .basket-assign-submit { width: 100%; }
         .results-summary { flex-direction: column; gap: var(--space-sm); align-items: flex-start; }
+        .row-edit-grid { grid-template-columns: 1fr; }
+        .row-edit-part-item { flex-direction: column; align-items: stretch; }
+        .row-edit-part-actions { width: 100%; }
+        .row-edit-part-actions .btn { flex: 1; }
     }
 </style>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+    (function () {
+        function debounce(fn, delay) {
+            let timer = null;
+            return function (...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
+
+        const wrapper = document.querySelector('.search-autocomplete');
+        const input = document.getElementById('search-input');
+        const dropdown = document.getElementById('part-search-suggestions');
+        const form = document.getElementById('search-form');
+        if (!wrapper || !input || !dropdown) return;
+
+        const suggestionsUrl = wrapper.dataset.suggestionsUrl;
+        if (!suggestionsUrl) return;
+
+        let items = [];
+        let activeIndex = -1;
+
+        function hideDropdown() {
+            dropdown.hidden = true;
+            dropdown.innerHTML = '';
+            items = [];
+            activeIndex = -1;
+            input.setAttribute('aria-expanded', 'false');
+        }
+
+        function setActive(index) {
+            const nodes = dropdown.querySelectorAll('.part-search-suggestion-item');
+            if (!nodes.length) return;
+            activeIndex = (index + nodes.length) % nodes.length;
+            nodes.forEach(function (node, idx) {
+                node.classList.toggle('is-active', idx === activeIndex);
+            });
+            nodes[activeIndex].scrollIntoView({ block: 'nearest' });
+        }
+
+        function selectItem(index) {
+            if (index < 0 || index >= items.length) return;
+            input.value = items[index];
+            hideDropdown();
+            if (form) form.submit();
+        }
+
+        function showSuggestions(nextItems) {
+            items = nextItems || [];
+            activeIndex = -1;
+            if (!items.length) {
+                hideDropdown();
+                return;
+            }
+            dropdown.innerHTML = items.map(function (text) {
+                return '<div class="part-search-suggestion-item" role="option">' + String(text).replace(/</g, '&lt;') + '</div>';
+            }).join('');
+            dropdown.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            dropdown.querySelectorAll('.part-search-suggestion-item').forEach(function (item, idx) {
+                item.addEventListener('mousedown', function (event) {
+                    event.preventDefault();
+                    selectItem(idx);
+                });
+            });
+        }
+
+        const fetchSuggestions = debounce(function (query) {
+            fetch(suggestionsUrl + '?q=' + encodeURIComponent(query), {
+                headers: { 'Accept': 'application/json' },
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) { showSuggestions(data.suggestions || []); })
+                .catch(function () { hideDropdown(); });
+        }, 200);
+
+        input.addEventListener('input', function () {
+            const query = input.value.trim();
+            if (!query.length) {
+                hideDropdown();
+                return;
+            }
+            fetchSuggestions(query);
+        });
+
+        input.addEventListener('keydown', function (event) {
+            if (dropdown.hidden || !items.length) return;
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setActive(activeIndex + 1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setActive(activeIndex <= 0 ? items.length - 1 : activeIndex - 1);
+            } else if (event.key === 'Enter' && activeIndex >= 0) {
+                event.preventDefault();
+                selectItem(activeIndex);
+            } else if (event.key === 'Escape') {
+                hideDropdown();
+            }
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(hideDropdown, 150);
+        });
+    })();
+
     const searchBasketForm = document.getElementById('search-basket-form');
     if (searchBasketForm) {
         searchBasketForm.addEventListener('submit', function (event) {
@@ -655,38 +982,113 @@
         });
     }
 
+    function closeRowEditModal() {
+        const modal = document.getElementById('row-edit-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
     function closePartEditModal() {
         const modal = document.getElementById('part-edit-modal');
         if (modal) modal.style.display = 'none';
     }
 
     (function () {
-        const modal = document.getElementById('part-edit-modal');
-        const form = document.getElementById('part-edit-form');
-        if (!modal || !form) return;
+        const rowModal = document.getElementById('row-edit-modal');
+        const carForm = document.getElementById('row-car-edit-form');
+        const partsList = document.getElementById('row-edit-parts-list');
+        const partModal = document.getElementById('part-edit-modal');
+        const partForm = document.getElementById('part-edit-form');
+        if (!rowModal || !carForm || !partsList || !partModal || !partForm) return;
 
-        const numberInput = document.getElementById('part-edit-number');
-        const brandInput = document.getElementById('part-edit-brand');
-        const nextInput = document.getElementById('part-edit-next');
-        const updateUrlTemplate = form.getAttribute('action');
+        const csrfToken = carForm.querySelector('input[name="csrfmiddlewaretoken"]').value;
+        const nextValue = function () {
+            return window.location.pathname + window.location.search + '#search-results-panel';
+        };
 
-        document.querySelectorAll('.part-tag-edit').forEach(function (button) {
+        function openPartEditor(part) {
+            document.getElementById('part-edit-number').value = part.part_number || '';
+            document.getElementById('part-edit-brand').value = part.brand || '';
+            document.getElementById('part-edit-next').value = nextValue();
+            partForm.action = part.update_url;
+            partModal.style.display = 'flex';
+            document.getElementById('part-edit-number').focus();
+        }
+
+        function renderParts(parts) {
+            if (!parts.length) {
+                partsList.innerHTML = '<p class="row-edit-note">No matched parts on this row.</p>';
+                return;
+            }
+            partsList.innerHTML = parts.map(function (part, index) {
+                return (
+                    '<div class="row-edit-part-item">' +
+                        '<div class="row-edit-part-meta">' +
+                            '<div class="row-edit-part-number"></div>' +
+                            '<div class="row-edit-part-brand"></div>' +
+                        '</div>' +
+                        '<div class="row-edit-part-actions">' +
+                            '<button type="button" class="btn btn-sm btn-edit row-part-edit-btn" data-index="' + index + '">Edit</button>' +
+                            '<form method="post" class="inline-form" data-confirm="Delete part ' + String(part.part_number).replace(/"/g, '&quot;') + '? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">' +
+                                '<input type="hidden" name="csrfmiddlewaretoken" value="' + csrfToken + '">' +
+                                '<input type="hidden" name="next" value="">' +
+                                '<button type="submit" class="btn btn-sm btn-danger">Delete</button>' +
+                            '</form>' +
+                        '</div>' +
+                    '</div>'
+                );
+            }).join('');
+
+            partsList.querySelectorAll('.row-edit-part-item').forEach(function (item, index) {
+                const part = parts[index];
+                item.querySelector('.row-edit-part-number').textContent = part.part_number || '—';
+                item.querySelector('.row-edit-part-brand').textContent = part.brand ? ('Brand: ' + part.brand) : 'Brand: —';
+                const form = item.querySelector('form');
+                form.action = part.delete_url;
+                form.querySelector('input[name="next"]').value = nextValue();
+                item.querySelector('.row-part-edit-btn').addEventListener('click', function () {
+                    openPartEditor(part);
+                });
+            });
+        }
+
+        document.querySelectorAll('.row-edit-btn').forEach(function (button) {
             button.addEventListener('click', function () {
-                const partId = button.dataset.partId;
-                numberInput.value = button.dataset.partNumber || '';
-                brandInput.value = button.dataset.brand || '';
-                form.action = updateUrlTemplate.replace('/0/', '/' + partId + '/');
-                nextInput.value = window.location.search + '#search-results-panel';
-                modal.style.display = 'flex';
-                numberInput.focus();
+                let parts = [];
+                try {
+                    parts = JSON.parse(button.dataset.parts || '[]');
+                } catch (err) {
+                    parts = [];
+                }
+
+                carForm.action = button.dataset.carUpdateUrl;
+                document.getElementById('row-edit-next').value = nextValue();
+                document.getElementById('row-edit-car-id').value = button.dataset.carId || '';
+                document.getElementById('row-edit-car-model').value = button.dataset.carModel || '';
+                document.getElementById('row-edit-steering').value = button.dataset.steering || '';
+                document.getElementById('row-edit-transmission').value = button.dataset.transmission || '';
+                document.getElementById('row-edit-wd').value = button.dataset.wd || '';
+                document.getElementById('row-edit-engine').value = button.dataset.engine || '';
+                document.getElementById('row-edit-parameters').value = button.dataset.carParameters || '';
+                document.getElementById('row-edit-note').value = button.dataset.additionalNote || '';
+                renderParts(parts);
+                rowModal.style.display = 'flex';
+                document.getElementById('row-edit-car-model').focus();
             });
         });
 
-        modal.addEventListener('click', function (e) {
-            if (e.target === modal) closePartEditModal();
+        rowModal.addEventListener('click', function (e) {
+            if (e.target === rowModal) closeRowEditModal();
+        });
+        partModal.addEventListener('click', function (e) {
+            if (e.target === partModal) closePartEditModal();
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && modal.style.display === 'flex') closePartEditModal();
+            if (e.key !== 'Escape') return;
+            if (partModal.style.display === 'flex') {
+                closePartEditModal();
+            } else if (rowModal.style.display === 'flex') {
+                closeRowEditModal();
+            }
         });
     })();
 </script>

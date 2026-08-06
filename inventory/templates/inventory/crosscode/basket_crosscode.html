@@ -14,7 +14,7 @@
                 <span class="search-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
-                <input type="text" name="q" id="basket-search-input" class="form-input" placeholder="Search brand, part number, car model, car ID..." value="{{ query }}" autocomplete="off">
+                <input type="text" name="q" id="basket-search-input" class="form-input" placeholder="Search brand name, brand number, product brand, product no, brand, or code..." value="{{ query }}" autocomplete="off">
             </div>
             <button type="submit" class="btn btn-primary btn-lg">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -63,10 +63,12 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Brand</th>
+                        <th>Brand Name</th>
                         <th>Brand Number</th>
-                        <th>Part Number</th>
-                        <th>Car Model</th>
+                        <th>Product Brand</th>
+                        <th>Product No</th>
+                        <th>Brand</th>
+                        <th>Code</th>
                         <th>Added</th>
                         <th>Actions</th>
                     </tr>
@@ -82,10 +84,16 @@
                             <span class="brand-number-text">{{ item.brand_number|default:"—" }}</span>
                         </td>
                         <td>
-                            <span class="part-tag">{{ item.part.part_number }}</span>
+                            <span class="brand-name">{{ item.part.brand|default:"—" }}</span>
                         </td>
-                        <td class="car-model-cell">
-                            <div class="car-model-text">{{ item.car.car_model|default:"—"|truncatechars:60 }}</div>
+                        <td>
+                            <span class="group-id-text">{{ item.part.product_no|default:"—" }}</span>
+                        </td>
+                        <td>
+                            <span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span>
+                        </td>
+                        <td>
+                            <span class="part-tag">{{ item.part.part_number }}</span>
                         </td>
                         <td>
                             <span class="date-text">{{ item.created_at|date:"M d, Y" }}</span>
@@ -94,7 +102,7 @@
                             <button
                                 type="button"
                                 class="btn btn-sm btn-edit"
-                                onclick="openEditModal({{ item.id }}, '{{ item.brand|escapejs }}', '{{ item.brand_number|escapejs }}', '{{ item.part.part_number|escapejs }}', '{{ item.car.car_model|escapejs|truncatechars:60 }}')"
+                                onclick="openEditModal({{ item.id }}, '{{ item.brand|escapejs }}', '{{ item.brand_number|escapejs }}', '{{ item.part.part_number|escapejs }}', '{{ item.part.product_no|escapejs }}')"
                                 title="Edit"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -102,8 +110,8 @@
                             <a
                                 href="{% url 'inventory:basket_group_detail_crosscode' item.basket_id %}"
                                 class="btn btn-sm btn-view-group"
-                                title="view backet items"
-                                aria-label="view backet items"
+                                title="View basket group"
+                                aria-label="View basket group"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
                             </a>
@@ -206,11 +214,11 @@
 
             <div class="modal-info-row">
                 <div class="modal-info-item">
-                    <span class="modal-info-label">Car</span>
+                    <span class="modal-info-label">Product No</span>
                     <span class="modal-info-value" id="edit-car-name">—</span>
                 </div>
                 <div class="modal-info-item">
-                    <span class="modal-info-label">Part Number</span>
+                    <span class="modal-info-label">Code</span>
                     <span class="modal-info-value" id="edit-part-number">—</span>
                 </div>
             </div>

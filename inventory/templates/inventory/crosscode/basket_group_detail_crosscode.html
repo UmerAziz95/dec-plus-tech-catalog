@@ -37,7 +37,7 @@
                 <span class="search-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
-                <input type="text" name="q" id="basket-group-search-input" class="form-input" placeholder="Search part number, car model, car ID..." value="{{ query }}" autocomplete="off">
+                <input type="text" name="q" id="basket-group-search-input" class="form-input" placeholder="Search product brand, product no, brand, or code..." value="{{ query }}" autocomplete="off">
             </div>
             <button type="submit" class="btn btn-primary btn-lg">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -73,8 +73,10 @@
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Part number</th>
-                        <th>Car model</th>
+                        <th>Product Brand</th>
+                        <th>Product No</th>
+                        <th>Brand</th>
+                        <th>Code</th>
                         <th>Added</th>
                         <th>Actions</th>
                     </tr>
@@ -83,12 +85,10 @@
                     {% for item in page_obj %}
                     <tr class="basket-row">
                         <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
-                        <td>
-                            <span class="part-tag">{{ item.part.part_number }}</span>
-                        </td>
-                        <td class="car-model-cell">
-                            <div class="car-model-text">{{ item.car.car_model|default:"—"|truncatechars:70 }}</div>
-                        </td>
+                        <td><span class="brand-name">{{ item.part.brand|default:"—" }}</span></td>
+                        <td><span class="group-id-text">{{ item.part.product_no|default:"—" }}</span></td>
+                        <td><span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span></td>
+                        <td><span class="part-tag">{{ item.part.part_number }}</span></td>
                         <td>
                             <span class="date-text">{{ item.created_at|date:"M d, Y" }}</span>
                         </td>

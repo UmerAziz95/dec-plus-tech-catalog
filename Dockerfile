@@ -56,9 +56,9 @@ RUN mkdir -p /app/staticfiles /app/media && \
 RUN python manage.py collectstatic --noinput 2>/dev/null || true && \
     chown -R django:django /app/staticfiles
 
-# Copy and set entrypoint
+# Copy and set entrypoint (strip CRLF for Windows checkouts)
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 USER django
 

@@ -17,6 +17,7 @@ from .models import BasketCrossCode, BasketItemCrossCode, CarCrossCode, PartCros
 from .services.basket_service import BasketService, BasketServiceCrossCode
 from .services.brand_names_service import BrandNamesServiceCrossCode
 from .services.bulk_search_service import BulkSearchServiceCrossCode
+from .services.car_catalog_service import CarCatalogService
 from .services.import_services import ExcelImportService
 from .services.manual_entry_service import ManualEntryServiceCrossCode
 from .services.parts_catalog_service import PartsCatalogServiceCrossCode
@@ -28,6 +29,8 @@ def _redirect_to_next(request, fallback_view_name):
     next_url = request.POST.get('next', '').strip()
     if next_url.startswith('?'):
         return redirect(f"{reverse(fallback_view_name)}{next_url}")
+    if next_url.startswith('/') and not next_url.startswith('//'):
+        return redirect(next_url)
     return redirect(fallback_view_name)
 
 
@@ -111,10 +114,19 @@ def search_part_crosscode_view(request):
         'bulk_summary': bulk_summary,
         'bulk_missed_count': bulk_missed_count,
         'part_search_export_url': reverse('inventory:part_search_export_crosscode'),
+        'part_search_suggestions_url': reverse('inventory:part_search_suggestions_crosscode'),
         'basket_count': BasketService.count_for_user(request.user),
         'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
     }
     return render(request, 'inventory/crosscode/search_part_crosscode.html', context)
+
+
+@login_required
+def part_search_suggestions_crosscode_view(request):
+    query = request.GET.get('q', '')
+    return JsonResponse({
+        'suggestions': PartSearchServiceCrossCode.suggest_part_numbers(query),
+    })
 
 
 @login_required
@@ -223,28 +235,27 @@ def add_search_results_to_basket_crosscode(request):
 @login_required
 @require_POST
 def add_to_basket_crosscode(request):
-    car_id = request.POST.get('car_id')
     part_id = request.POST.get('part_id')
     brand = request.POST.get('brand', '').strip()
     brand_number = request.POST.get('brand_number', '').strip()
 
-    if not car_id or not part_id or not brand or not brand_number:
-        messages.error(request, 'Car, part, brand name, and brand number are required.')
+    if not part_id or not brand or not brand_number:
+        messages.error(request, 'Part, brand name, and brand number are required.')
         return redirect(request.META.get('HTTP_REFERER', 'inventory:search_part_crosscode'))
 
-    car = get_object_or_404(CarCrossCode, pk=car_id)
     part = get_object_or_404(PartCrossCode, pk=part_id)
 
-    if BasketServiceCrossCode.item_exists(request.user, car, part, brand, brand_number):
+    if BasketServiceCrossCode.item_exists(request.user, part, brand, brand_number):
         messages.warning(
             request,
-            f'This item is already in your basket: {brand} | {part.part_number} | {car.car_id}'
+            f'This item is already in your basket: {brand} | {brand_number} | {part.part_number}'
         )
     else:
-        BasketServiceCrossCode.add_item(request.user, car, part, brand, brand_number)
+        BasketServiceCrossCode.add_item(request.user, part, brand, brand_number)
         messages.success(
             request,
-            f'Added to basket: {brand} → {part.part_number} → {car.car_model[:60]}'
+            f'Added to basket: {brand} | {brand_number} → {part.brand} / {part.product_no} / '
+            f'{part.oe_brand or "—"} / {part.part_number}'
         )
 
     referer = request.META.get('HTTP_REFERER', '')
@@ -271,6 +282,18 @@ def part_delete_crosscode_view(request, part_id):
     part = get_object_or_404(PartCrossCode, pk=part_id)
     part_number = PartsCatalogServiceCrossCode.delete_part(part)
     messages.success(request, f'Deleted part {part_number}. It no longer appears for any vehicle.')
+    return _redirect_to_next(request, 'inventory:search_part_crosscode')
+
+
+@login_required
+@require_POST
+def cars_crosscode_update_view(request, car_pk):
+    car = get_object_or_404(CarCrossCode, pk=car_pk)
+    ok, error = CarCatalogService.update_car(car, request.POST)
+    if ok:
+        messages.success(request, f'Updated car {car.car_id}.')
+    else:
+        messages.error(request, error)
     return _redirect_to_next(request, 'inventory:search_part_crosscode')
 
 
@@ -476,8 +499,8 @@ def parts_catalog_crosscode_view(request):
 # ============================================
 # IMPORT SAMPLE FILES
 # ============================================
-# Same file shape as Cross Car's imports, just landing in the Cross Code
-# tables — so the sample workbooks are shared, not duplicated.
+# Cross Code Excel sample uses Product Brand / Product No / Brand / Code.
+# Legacy cars/groups sample endpoints remain for older links.
 
 def _sample_workbook_response(workbook, filename):
     response = HttpResponse(
@@ -500,26 +523,42 @@ def groups_crosscode_sample_export_view(request):
 
 @login_required
 def parts_crosscode_sample_export_view(request):
-    return _sample_workbook_response(ExcelImportService.build_parts_sample_workbook(), 'parts_crosscode_sample.xlsx')
+    return _sample_workbook_response(
+        ExcelImportService.build_crosscode_sample_workbook(),
+        'Cross_code_example.xlsx',
+    )
 
 
 @login_required
 def manual_add_suggestions_crosscode_view(request):
     query = request.GET.get('q', '')
-    return JsonResponse({'suggestions': ManualEntryServiceCrossCode.suggest_car_models(query)})
+    field = (request.GET.get('field') or 'product_no').strip().lower()
+    if field == 'product_brand':
+        suggestions = ManualEntryServiceCrossCode.suggest_product_brands(query)
+    else:
+        suggestions = ManualEntryServiceCrossCode.suggest_product_nos(query)
+    return JsonResponse({'suggestions': suggestions})
 
 
 @login_required
 @require_POST
 def manual_add_part_crosscode_view(request):
-    car_model = request.POST.get('car_model', '')
-    part_number = request.POST.get('part_number', '')
-    ok, error = ManualEntryServiceCrossCode.add_part_to_car(car_model, part_number)
+    product_brand = request.POST.get('product_brand', '')
+    product_no = request.POST.get('product_no', '')
+    oe_brand = request.POST.get('oe_brand', '')
+    code = request.POST.get('code', '') or request.POST.get('part_number', '')
+    ok, error = ManualEntryServiceCrossCode.add_cross_code_row(
+        product_brand, product_no, oe_brand, code,
+    )
     if ok:
-        messages.success(request, f'Added part "{part_number.strip()}" to "{car_model.strip()}".')
+        messages.success(
+            request,
+            f'Added Cross Code row: {product_brand.strip()} / {product_no.strip()} / '
+            f'{(oe_brand or "—").strip()} / {code.strip()}.',
+        )
     else:
         messages.error(request, error)
-    return redirect('inventory:import_data')
+    return redirect(f"{reverse('inventory:import_data')}?{urlencode({'catalog': 'crosscode'})}#cross-code-section")
 
 
 # ============================================
@@ -529,11 +568,15 @@ def manual_add_part_crosscode_view(request):
 @login_required
 def brand_names_crosscode_view(request):
     query = request.GET.get('q', '').strip()
-    brands = BrandNamesServiceCrossCode.list_brands(query)
+    brand_field = (request.GET.get('field') or BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND).strip().lower()
+    if brand_field not in BrandNamesServiceCrossCode.FIELD_MAP:
+        brand_field = BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND
+    brands = BrandNamesServiceCrossCode.list_brands(query, field=brand_field)
 
     context = {
         'active_page': 'brand_names_crosscode',
         'query': query,
+        'brand_field': brand_field,
         'brands': brands,
         'has_results': bool(brands),
         'basket_count': BasketService.count_for_user(request.user),
@@ -547,9 +590,19 @@ def brand_names_crosscode_view(request):
 def brand_rename_crosscode_view(request):
     old_name = request.POST.get('old_name', '')
     new_name = request.POST.get('new_name', '')
-    ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand(old_name, new_name)
+    brand_field = (request.POST.get('field') or BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND).strip().lower()
+    ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand(
+        old_name, new_name, field=brand_field,
+    )
+    label = 'Product Brand' if brand_field == BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND else 'Brand'
     if ok:
-        messages.success(request, f'Renamed "{old_name}" to "{new_name}" on {updated_count} part(s).')
+        messages.success(
+            request,
+            f'Renamed {label} "{old_name}" to "{new_name}" on {updated_count} Cross Code row(s).',
+        )
     else:
         messages.error(request, error)
-    return redirect('inventory:brand_names_crosscode')
+    redirect_url = reverse('inventory:brand_names_crosscode')
+    if brand_field != BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND:
+        redirect_url = f'{redirect_url}?field={brand_field}'
+    return redirect(redirect_url)
