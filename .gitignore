@@ -33,3 +33,6 @@ Thumbs.db
 
 # Gemini AI
 .gemini/
+
+# Claude Code
+.claude/

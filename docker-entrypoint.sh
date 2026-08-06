@@ -21,5 +21,8 @@ python manage.py migrate --noinput
 echo "==> Collecting static files..."
 python manage.py collectstatic --noinput 2>/dev/null || true
 
+echo "==> Seeding default users..."
+python manage.py seed_users
+
 echo "==> Starting server..."
 exec "$@"

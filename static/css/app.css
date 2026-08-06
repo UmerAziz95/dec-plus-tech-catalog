@@ -242,6 +242,22 @@ button { font-family: var(--font); }
     text-align: center;
 }
 
+.nav-link.disabled {
+    color: var(--text-dim);
+    cursor: default;
+    pointer-events: none;
+}
+
+.nav-link.disabled:hover {
+    background: none;
+}
+
+.card.disabled-action {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
 /* ---- Sidebar Footer (User) ---- */
 .sidebar-footer {
     padding: var(--space-md) var(--space-sm);
@@ -478,6 +494,17 @@ button { font-family: var(--font); }
     margin-top: 2px;
 }
 
+.section-heading {
+    display: block;
+    font-size: var(--font-xl);
+    font-weight: 700;
+    color: var(--text-primary);
+    padding-top: var(--space-lg);
+    padding-bottom: var(--space-sm);
+    margin-top: var(--space-md);
+    border-top: 1px solid var(--card-border);
+}
+
 /* ---- Stat Cards ---- */
 .stats-grid {
     display: grid;
@@ -519,6 +546,7 @@ button { font-family: var(--font); }
 .stat-icon-box.green  { background: rgba(16, 185, 129, 0.12);  color: #34d399; }
 .stat-icon-box.amber  { background: rgba(245, 158, 11, 0.12);  color: #fbbf24; }
 .stat-icon-box.pink   { background: rgba(236, 72, 153, 0.12);  color: #f472b6; }
+.stat-icon-box.gray   { background: rgba(148, 163, 184, 0.12); color: #94a3b8; }
 
 .stat-content { flex: 1; }
 

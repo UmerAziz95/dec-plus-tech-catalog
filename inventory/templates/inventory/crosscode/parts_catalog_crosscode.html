@@ -1,0 +1,256 @@
+{% extends "app_base.html" %}
+
+{% block title %}Edit Parts Numbers{% endblock %}
+{% block page_title %}Edit Parts Numbers{% endblock %}
+{% block breadcrumb %}Home / Edit Parts Numbers{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <div class="card parts-search-card">
+        <form method="get" action="" class="parts-search-form" id="parts-search-form">
+            <div class="search-bar parts-search-bar">
+                <span class="search-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </span>
+                <input type="text" name="q" id="parts-search-input" class="form-input" placeholder="Search Product Brand, Product No, Brand, or Code..." value="{{ query }}" autocomplete="off">
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span>Search</span>
+            </button>
+            {% if query %}
+            <a href="{% url 'inventory:parts_catalog_crosscode' %}" class="btn btn-secondary btn-lg">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="results-summary">
+        <div class="results-info">
+            <span class="results-count">{{ total_parts }}</span> part{{ total_parts|pluralize }}{% if query %} matching "<strong>{{ query }}</strong>"{% endif %}
+        </div>
+        {% if page_obj.paginator.num_pages > 1 %}
+        <div class="results-page-info">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if has_results %}
+    <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="table-wrapper">
+            <table class="data-table" id="parts-catalog-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Product Brand</th>
+                        <th>Product No</th>
+                        <th>Brand</th>
+                        <th>Code</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for part in page_obj %}
+                    <tr class="parts-row">
+                        <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                        <td><span class="brand-name">{{ part.brand|default:"—" }}</span></td>
+                        <td><span class="group-id-text">{{ part.product_no|default:"—" }}</span></td>
+                        <td><span class="brand-name">{{ part.oe_brand|default:"—" }}</span></td>
+                        <td><span class="part-tag">{{ part.part_number }}</span></td>
+                        <td class="actions-cell">
+                            <button type="button" class="btn btn-sm btn-edit part-edit-btn" title="Edit part" data-part-id="{{ part.id }}" data-part-number="{{ part.part_number }}">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <form method="post" action="{% url 'inventory:part_delete_crosscode' part.id %}" class="inline-form" data-confirm="Delete {{ part.part_number }}? This removes it everywhere, not just from this list." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="?q={{ query|urlencode }}&page={{ page_obj.number }}">
+                                <button type="submit" class="btn btn-sm btn-delete" title="Delete part">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <div class="pagination-wrapper">
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+            <a href="?q={{ query|urlencode }}&page=1" class="page-link" title="First">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+            </a>
+            <a href="?q={{ query|urlencode }}&page={{ page_obj.previous_page_number }}" class="page-link">Prev</a>
+            {% endif %}
+            {% for num in page_obj.paginator.page_range %}
+                {% if page_obj.number == num %}
+                <span class="page-link active">{{ num }}</span>
+                {% elif num > page_obj.number|add:"-4" and num < page_obj.number|add:"4" %}
+                <a href="?q={{ query|urlencode }}&page={{ num }}" class="page-link">{{ num }}</a>
+                {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                <a href="?q={{ query|urlencode }}&page={{ num }}" class="page-link">{{ num }}</a>
+                {% endif %}
+            {% endfor %}
+            {% if page_obj.has_next %}
+            <a href="?q={{ query|urlencode }}&page={{ page_obj.next_page_number }}" class="page-link">Next</a>
+            <a href="?q={{ query|urlencode }}&page={{ page_obj.paginator.num_pages }}" class="page-link" title="Last">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="card">
+        <div class="empty-state">
+            <h3 class="empty-state-title">No parts found</h3>
+            <p class="empty-state-text">
+                {% if query %}Nothing matches "<strong>{{ query }}</strong>". Try another term or clear the search.{% else %}No Cross Code parts have been imported yet.{% endif %}
+            </p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal-overlay" id="part-edit-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 420px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Edit Part</h3>
+            <button type="button" class="modal-close" onclick="closePartEditModal()" aria-label="Close">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" id="part-edit-form" action="{% url 'inventory:part_update_crosscode' 0 %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" id="part-edit-next" value="">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="part-edit-number">Part number <span class="required-mark">*</span></label>
+                    <input type="text" name="part_number" id="part-edit-number" class="form-input" required maxlength="100">
+                </div>
+                <p class="edit-note">Product Brand isn't editable here — rename it from the <a href="{% url 'inventory:brand_names_crosscode' %}">Brand Names</a> page so it updates everywhere at once.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePartEditModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .parts-search-card { margin-bottom: var(--space-md); padding: var(--space-lg); }
+    .parts-search-form { display: flex; align-items: end; gap: var(--space-md); flex-wrap: wrap; }
+    .parts-search-bar { flex: 1 1 280px; min-width: 0; }
+    .required-mark { color: var(--error); }
+    .edit-note { margin: var(--space-md) 0 0; font-size: var(--font-xs); color: var(--text-muted); }
+    .edit-note a { color: var(--accent-light); }
+
+    .results-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-md); margin-bottom: var(--space-md); padding: 0 var(--space-xs); }
+    .results-info { font-size: var(--font-sm); color: var(--text-secondary); }
+    .results-count { font-weight: 700; color: var(--accent-light); font-size: var(--font-lg); }
+    .results-page-info { font-size: var(--font-xs); color: var(--text-muted); }
+
+    .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
+    .brand-name { font-weight: 600; color: #fbbf24; }
+    .group-id-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-xs); color: var(--text-secondary); }
+    .part-tag {
+        display: inline-flex; padding: 2px 8px;
+        background: var(--accent-dim); color: var(--accent-light); border-radius: var(--radius-sm);
+        font-size: var(--font-xs); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .actions-cell { display: flex; gap: 4px; }
+    .inline-form { display: inline; }
+
+    .btn-edit { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
+    .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
+    .btn-delete { background: rgba(244, 63, 94, 0.1); color: #f87171; border: 1px solid rgba(244, 63, 94, 0.2); }
+    .btn-delete:hover { background: rgba(244, 63, 94, 0.2); border-color: rgba(244, 63, 94, 0.4); }
+
+    .parts-row { transition: all var(--t-fast); }
+    .parts-row:hover { background: var(--surface-muted, #f8fafc) !important; }
+
+    .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
+    .pagination { display: flex; align-items: center; gap: 4px; }
+    .page-link {
+        display: inline-flex; align-items: center; gap: 4px; padding: 0.4rem 0.75rem;
+        border-radius: var(--radius-md); font-size: var(--font-sm); font-weight: 500;
+        color: var(--text-secondary); background: var(--card-bg); border: 1px solid var(--card-border);
+        transition: all var(--t-fast); cursor: pointer; text-decoration: none;
+    }
+    .page-link:hover { background: var(--card-bg-hover); color: var(--text-primary); }
+    .page-link.active { background: var(--accent-dim); color: var(--accent-light); border-color: rgba(228, 0, 43, 0.3); }
+
+    .modal-overlay {
+        position: fixed; inset: 0; z-index: 200;
+        background: rgba(15, 23, 42, 0.4);
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        display: flex; align-items: center; justify-content: center;
+        padding: var(--space-lg); animation: modalFadeIn 0.2s ease;
+    }
+    .modal-card {
+        background: var(--card-bg); border: 1px solid var(--card-border);
+        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12); animation: modalSlideUp 0.25s ease;
+    }
+    .modal-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
+    }
+    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
+    .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast); }
+    .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
+    .modal-body { padding: var(--space-lg) var(--space-xl); }
+    .modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md); padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border); }
+    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 768px) {
+        .parts-search-form { flex-direction: column; align-items: stretch; }
+        .parts-search-bar { width: 100%; }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function closePartEditModal() {
+        const modal = document.getElementById('part-edit-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    (function () {
+        const modal = document.getElementById('part-edit-modal');
+        const form = document.getElementById('part-edit-form');
+        if (!modal || !form) return;
+
+        const numberInput = document.getElementById('part-edit-number');
+        const nextInput = document.getElementById('part-edit-next');
+        const updateUrlTemplate = form.getAttribute('action');
+
+        document.querySelectorAll('.part-edit-btn').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const partId = button.dataset.partId;
+                numberInput.value = button.dataset.partNumber || '';
+                form.action = updateUrlTemplate.replace('/0/', '/' + partId + '/');
+                nextInput.value = window.location.search;
+                modal.style.display = 'flex';
+                numberInput.focus();
+            });
+        });
+
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) closePartEditModal();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.style.display === 'flex') closePartEditModal();
+        });
+    })();
+</script>
+{% endblock %}

@@ -1,5 +1,18 @@
 from django.contrib import admin
-from .models import Basket, BasketItem, Car, CarGroup, ImportBatch, ImportRowError, Part
+from .models import (
+    Basket,
+    BasketCrossCode,
+    BasketItem,
+    BasketItemCrossCode,
+    Car,
+    CarCrossCode,
+    CarGroup,
+    CarGroupCrossCode,
+    ImportBatch,
+    ImportRowError,
+    Part,
+    PartCrossCode,
+)
 
 
 @admin.register(Car)
@@ -28,6 +41,29 @@ class PartAdmin(admin.ModelAdmin):
     list_per_page = 25
 
 
+@admin.register(CarCrossCode)
+class CarCrossCodeAdmin(admin.ModelAdmin):
+    list_display = ('car_id', 'car_model', 'steering', 'transmission', 'wd', 'engine', 'created_at')
+    list_filter = ('steering', 'transmission', 'wd')
+    search_fields = ('car_id', 'car_model', 'engine', 'car_parameters')
+    list_per_page = 25
+
+
+@admin.register(CarGroupCrossCode)
+class CarGroupCrossCodeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'car_id', 'group_id')
+    search_fields = ('car_id', 'group_id')
+    list_per_page = 25
+
+
+@admin.register(PartCrossCode)
+class PartCrossCodeAdmin(admin.ModelAdmin):
+    list_display = ('brand', 'product_no', 'oe_brand', 'part_number', 'group_id', 'created_at')
+    list_filter = ('brand', 'oe_brand')
+    search_fields = ('brand', 'product_no', 'oe_brand', 'part_number', 'group_id')
+    list_per_page = 25
+
+
 @admin.register(Basket)
 class BasketAdmin(admin.ModelAdmin):
     list_display = ('id', 'brand', 'brand_number', 'created_at')
@@ -38,6 +74,23 @@ class BasketAdmin(admin.ModelAdmin):
 
 @admin.register(BasketItem)
 class BasketItemAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'basket', 'part', 'car', 'group_id', 'created_at')
+    list_filter = ('basket__brand',)
+    search_fields = ('basket__brand', 'basket__brand_number', 'part__part_number', 'car__car_id', 'group_id')
+    raw_id_fields = ('user', 'basket', 'car', 'part')
+    list_per_page = 25
+
+
+@admin.register(BasketCrossCode)
+class BasketCrossCodeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'brand', 'brand_number', 'created_at')
+    list_filter = ('brand',)
+    search_fields = ('brand', 'brand_number')
+    list_per_page = 25
+
+
+@admin.register(BasketItemCrossCode)
+class BasketItemCrossCodeAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'basket', 'part', 'car', 'group_id', 'created_at')
     list_filter = ('basket__brand',)
     search_fields = ('basket__brand', 'basket__brand_number', 'part__part_number', 'car__car_id', 'group_id')

@@ -46,12 +46,19 @@ COPY . .
 RUN mkdir -p /app/staticfiles /app/media && \
     chown -R django:django /app
 
-# Collect static files at build time
-RUN python manage.py collectstatic --noinput 2>/dev/null || true
+# Collect static files at build time, then re-own them: collectstatic runs
+# as root here (USER django hasn't taken effect yet), so files it creates
+# would otherwise stay root-owned. That matters because Docker seeds a
+# fresh named volume from the image's content at the mount path, ownership
+# included — a root-owned seed means the non-root entrypoint can never
+# overwrite static files on a new volume, silently (its collectstatic call
+# swallows errors), leaving the dashboard permanently serving stale CSS/JS.
+RUN python manage.py collectstatic --noinput 2>/dev/null || true && \
+    chown -R django:django /app/staticfiles
 
-# Copy and set entrypoint
+# Copy and set entrypoint (strip CRLF for Windows checkouts)
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 USER django
 
