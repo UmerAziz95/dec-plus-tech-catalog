@@ -21,7 +21,7 @@ from .services.car_catalog_service import CarCatalogService
 from .services.import_services import ExcelImportService
 from .services.manual_entry_service import ManualEntryServiceCrossCode
 from .services.parts_catalog_service import PartsCatalogServiceCrossCode
-from .services.part_number_utils import sanitize_part_number
+from .services.part_number_utils import sanitize_crosscode_search, sanitize_part_number
 from .services.part_search_service import PartSearchServiceCrossCode
 
 
@@ -61,13 +61,16 @@ def _complete_bulk_search_crosscode(request, rows_data):
 def search_part_crosscode_view(request):
     """Cross Code part number search and bulk Excel search on one page."""
     raw_query = request.GET.get('q', '').strip()
-    search_query = sanitize_part_number(raw_query)
+    force_exact = request.GET.get('exact') == '1'
+    search_query = sanitize_crosscode_search(raw_query, keep_star=True)
     results = []
     total_cars = 0
     total_parts_found = 0
     bulk_results = []
     bulk_has_searched = False
     bulk_summary = None
+    did_you_mean = False
+    did_you_mean_candidates = []
 
     if request.GET.get('bulk_done') and request.session.get('bulk_search_export_rows_crosscode') is not None:
         bulk_results = request.session.get('bulk_search_export_rows_crosscode') or []
@@ -83,8 +86,17 @@ def search_part_crosscode_view(request):
         else:
             return _complete_bulk_search_crosscode(request, rows_data)
 
-    if search_query:
+    if search_query and not force_exact:
+        needs, candidates, search_query = PartSearchServiceCrossCode.needs_disambiguation(raw_query)
+        if needs:
+            did_you_mean = True
+            did_you_mean_candidates = candidates
+        else:
+            results = PartSearchServiceCrossCode.build_results(raw_query)
+    elif search_query and force_exact:
         results = PartSearchServiceCrossCode.build_results(raw_query)
+
+    if results:
         total_cars = len(results)
         total_parts_found = len({
             part.id
@@ -108,6 +120,8 @@ def search_part_crosscode_view(request):
         'total_parts_found': total_parts_found,
         'has_results': bool(search_query and results),
         'searched': bool(search_query),
+        'did_you_mean': did_you_mean,
+        'did_you_mean_candidates': did_you_mean_candidates,
         'bulk_results': bulk_results,
         'bulk_has_searched': bulk_has_searched,
         'bulk_result_count': len(bulk_results),
@@ -406,15 +420,12 @@ def clear_basket_crosscode_view(request):
 @login_required
 def basket_crosscode_view(request):
     query = BasketServiceCrossCode.clean_search_query(request.GET.get('q', ''))
-    total_basket_count = BasketServiceCrossCode.count_for_user(request.user)
-
-    basket_items = BasketServiceCrossCode.filter_items_queryset(
-        request.user,
-        query,
-    ).select_related('part')
+    total_item_count = BasketServiceCrossCode.count_for_user(request.user)
+    basket_groups = BasketServiceCrossCode.filter_basket_groups(request.user, query)
+    total_group_count = len(BasketServiceCrossCode.get_user_basket_groups(request.user))
 
     page_number = request.GET.get('page', 1)
-    paginator = Paginator(basket_items, BasketServiceCrossCode.BASKET_PAGE_SIZE)
+    paginator = Paginator(basket_groups, BasketServiceCrossCode.BASKET_PAGE_SIZE)
     page_obj = paginator.get_page(page_number)
 
     search_params = {'q': query} if query else {}
@@ -425,9 +436,10 @@ def basket_crosscode_view(request):
         'page_obj': page_obj,
         'query': query,
         'filtered_count': paginator.count,
-        'total_basket_count': total_basket_count,
+        'total_basket_count': total_group_count,
+        'total_item_count': total_item_count,
         'basket_count': BasketService.count_for_user(request.user),
-        'basket_count_crosscode': total_basket_count,
+        'basket_count_crosscode': total_item_count,
         'has_results': paginator.count > 0,
         'searched': bool(query),
         'search_query_string': search_query_string,
@@ -558,7 +570,7 @@ def manual_add_part_crosscode_view(request):
         )
     else:
         messages.error(request, error)
-    return redirect(f"{reverse('inventory:import_data')}?{urlencode({'catalog': 'crosscode'})}#cross-code-section")
+    return redirect(f"{reverse('inventory:import_data')}?{urlencode({'catalog': 'crosscode'})}")
 
 
 # ============================================

@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.core.paginator import Paginator
+from django.db import connection, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.template.loader import render_to_string
@@ -229,8 +230,7 @@ def import_data_view(request):
                 'Import started in the background. This page will show progress; you can leave and come back.',
             )
             catalog = 'crosscode' if import_type in _CROSSCODE_IMPORT_TYPES else 'cars'
-            fragment = 'cross-code-section' if catalog == 'crosscode' else 'cross-car-section'
-            return redirect(_import_data_url(catalog=catalog, batch_id=batch_id, fragment=fragment))
+            return redirect(_import_data_url(catalog=catalog, batch_id=batch_id))
         messages.error(request, 'Please fix validation errors and try again.')
     batch_id = request.GET.get('batch')
     if batch_id and str(batch_id).isdigit():
@@ -336,11 +336,12 @@ def manual_add_part_view(request):
         messages.success(request, f'Added part "{part_number.strip()}" to "{car_model.strip()}".')
     else:
         messages.error(request, error)
-    return redirect(_import_data_url(catalog='cars', fragment='cross-car-section'))
+    return redirect(_import_data_url(catalog='cars'))
 
 
 @login_required
 @require_POST
+@transaction.atomic
 def import_batch_delete_view(request, batch_id):
     batch = get_object_or_404(ImportBatch, pk=batch_id, uploaded_by=request.user)
     catalog = _import_catalog_from_request(request, import_type=batch.import_type)
@@ -349,28 +350,42 @@ def import_batch_delete_view(request, batch_id):
         messages.error(request, 'This import is still running — wait for it to finish before deleting.')
         return redirect(_import_data_url(catalog=catalog))
 
-    # Only rows this batch actually created carry its import_batch stamp
-    # (rows it merely updated/reused, e.g. an existing car, are left alone).
-    # Batches imported before this tracking existed have no stamped rows,
-    # so deleting them removes the history entry but no data. Cross Car and
-    # Cross Code models are both checked since a batch's import_type tells
-    # us which forms created it, not which table(s) it could have touched.
-    # Capture car PKs before delete so orphan group links (from other batches)
-    # that still point at these cars can be cleaned up too.
+    # Only rows this batch created (import_batch stamp) are removed.
+    # Use SQL deletes for parts so large Cross Code imports undo reliably
+    # instead of timing out in the ORM collector.
     car_pks = [str(pk) for pk in Car.objects.filter(import_batch=batch).values_list('id', flat=True)]
     car_cc_pks = [str(pk) for pk in CarCrossCode.objects.filter(import_batch=batch).values_list('id', flat=True)]
+
     cars_deleted, _ = Car.objects.filter(import_batch=batch).delete()
     groups_deleted, _ = CarGroup.objects.filter(import_batch=batch).delete()
     if car_pks:
         orphan_groups, _ = CarGroup.objects.filter(car_id__in=car_pks).delete()
         groups_deleted += orphan_groups
-    parts_deleted, _ = Part.objects.filter(import_batch=batch).delete()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'DELETE FROM basket_items WHERE part_id IN '
+            '(SELECT id FROM parts WHERE import_batch_id = %s)',
+            [batch.id],
+        )
+        cursor.execute('DELETE FROM parts WHERE import_batch_id = %s', [batch.id])
+        parts_deleted = cursor.rowcount
+
     cars_cc_deleted, _ = CarCrossCode.objects.filter(import_batch=batch).delete()
     groups_cc_deleted, _ = CarGroupCrossCode.objects.filter(import_batch=batch).delete()
     if car_cc_pks:
         orphan_cc_groups, _ = CarGroupCrossCode.objects.filter(car_id__in=car_cc_pks).delete()
         groups_cc_deleted += orphan_cc_groups
-    parts_cc_deleted, _ = PartCrossCode.objects.filter(import_batch=batch).delete()
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'DELETE FROM basket_items_crosscode WHERE part_id IN '
+            '(SELECT id FROM parts_crosscode WHERE import_batch_id = %s)',
+            [batch.id],
+        )
+        cursor.execute('DELETE FROM parts_crosscode WHERE import_batch_id = %s', [batch.id])
+        parts_cc_deleted = cursor.rowcount
+
     cars_deleted += cars_cc_deleted
     groups_deleted += groups_cc_deleted
     parts_deleted += parts_cc_deleted
@@ -381,8 +396,7 @@ def import_batch_delete_view(request, batch_id):
         f'Deleted import "{batch.original_file_name}": removed {cars_deleted} car(s), '
         f'{groups_deleted} group link(s), {parts_deleted} part(s).',
     )
-    fragment = 'cross-code-section' if catalog == 'crosscode' else 'cross-car-section'
-    return redirect(_import_data_url(catalog=catalog, fragment=fragment))
+    return redirect(_import_data_url(catalog=catalog))
 
 
 @login_required

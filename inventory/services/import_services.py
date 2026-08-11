@@ -416,9 +416,15 @@ class ExcelImportService:
                 )
             }
             to_create = []
+            to_claim = []
             for row in chunk:
                 key = (row['brand'], row['product_no'], row['oe_brand'], row['part_number'])
-                if key in existing:
+                existing_item = existing.get(key)
+                if existing_item is not None:
+                    # Claim unstamped rows so history delete can undo them.
+                    if existing_item.import_batch_id is None:
+                        existing_item.import_batch = batch
+                        to_claim.append(existing_item)
                     continue
                 existing[key] = None
                 to_create.append(PartCrossCode(
@@ -429,6 +435,9 @@ class ExcelImportService:
                     part_number=row['part_number'],
                     import_batch=batch,
                 ))
+            if to_claim:
+                PartCrossCode.objects.bulk_update(to_claim, ['import_batch'], batch_size=bs)
+                saved += len(to_claim)
             if to_create:
                 with transaction.atomic():
                     PartCrossCode.objects.bulk_create(to_create, batch_size=bs)
@@ -788,6 +797,7 @@ class ExcelImportService:
     def _upsert_parts_batched(self, parts, batch, bs, model=Part):
         parts_list = list(parts)
         total = len(parts_list)
+        saved = 0
         for start in range(0, total, bs):
             chunk = parts_list[start:start + bs]
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
@@ -808,20 +818,35 @@ class ExcelImportService:
 
             self._remove_duplicate_parts(model, group_ids, part_nums)
 
-            existing = set(
-                model.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
-            )
+            existing_map = {
+                (item.group_id, item.part_number): item
+                for item in model.objects.filter(group_id__in=group_ids, part_number__in=part_nums)
+            }
             to_create = []
+            to_claim = []
             for group_id, brand, part_number in resolved:
                 key = (group_id, part_number)
-                if key in existing:
+                existing_item = existing_map.get(key)
+                if existing_item is not None:
+                    if existing_item.import_batch_id is None:
+                        existing_item.import_batch = batch
+                        to_claim.append(existing_item)
                     continue
-                existing.add(key)
-                to_create.append(model(group_id=group_id, brand=brand, part_number=part_number, import_batch=batch))
+                existing_map[key] = None
+                to_create.append(model(
+                    group_id=group_id,
+                    brand=brand,
+                    part_number=part_number,
+                    import_batch=batch,
+                ))
+            if to_claim:
+                model.objects.bulk_update(to_claim, ['import_batch'], batch_size=bs)
+                saved += len(to_claim)
             if to_create:
                 with transaction.atomic():
                     model.objects.bulk_create(to_create, batch_size=bs)
-        return total
+                saved += len(to_create)
+        return saved
 
     def _add_error(self, sheet_name, row_number, message):
         if len(self.errors) >= MAX_IMPORT_ERRORS:

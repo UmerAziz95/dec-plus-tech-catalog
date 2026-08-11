@@ -270,7 +270,27 @@
                                 </td>
                                 <td class="parts-cell">
                                     {% for part in item.parts %}
-                                    <span class="part-tag">{{ part.part_number }}</span>
+                                    <span class="part-tag-group">
+                                        <span class="part-tag">{{ part.part_number }}</span>
+                                        <button
+                                            type="button"
+                                            class="part-tag-action part-tag-edit"
+                                            title="Edit part"
+                                            data-part-id="{{ part.id }}"
+                                            data-part-number="{{ part.part_number|escapejs }}"
+                                            data-part-brand="{{ part.brand|escapejs }}"
+                                            data-update-url="{% url 'inventory:part_update' part.id %}"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        </button>
+                                        <form method="post" action="{% url 'inventory:part_delete' part.id %}" class="part-tag-delete-form inline-form" data-confirm="Delete part {{ part.part_number }}? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="next" value="?q={{ query|urlencode }}&page={{ page_obj.number }}#search-results-panel">
+                                            <button type="submit" class="part-tag-action part-tag-delete" title="Delete part">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                            </button>
+                                        </form>
+                                    </span>
                                     {% endfor %}
                                 </td>
                                 <td>
@@ -413,7 +433,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body modal-body-scroll">
             <form method="post" id="row-car-edit-form" class="row-car-edit-form">
                 {% csrf_token %}
                 <input type="hidden" name="next" id="row-edit-next" value="">
@@ -423,7 +443,7 @@
                         <label class="form-label">Car ID</label>
                         <input type="text" class="form-input" id="row-edit-car-id" readonly>
                     </div>
-                    <div class="form-group row-edit-wide">
+                    <div class="form-group">
                         <label class="form-label" for="row-edit-car-model">Car model <span class="required-mark">*</span></label>
                         <input type="text" name="car_model" id="row-edit-car-model" class="form-input" required maxlength="500">
                     </div>
@@ -453,11 +473,11 @@
                     </div>
                 </div>
                 <div class="row-edit-actions">
-                    <button type="submit" class="btn btn-primary">Save vehicle</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save vehicle</button>
                 </div>
             </form>
 
-            <div class="row-edit-section-title" style="margin-top: var(--space-lg);">Matched parts</div>
+            <div class="row-edit-section-title" style="margin-top: var(--space-md);">Matched parts</div>
             <p class="row-edit-note">Edit or delete each part number one by one.</p>
             <div id="row-edit-parts-list" class="row-edit-parts-list"></div>
         </div>
@@ -702,21 +722,20 @@
         border: 1px solid rgba(59, 130, 246, 0.2);
     }
     .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
-    .row-edit-card { max-width: 720px; }
     .row-edit-section-title {
-        font-size: var(--font-sm); font-weight: 600; color: var(--text-secondary);
-        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-md);
+        font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-sm);
     }
     .row-edit-note {
-        margin: 0 0 var(--space-md); font-size: var(--font-xs); color: var(--text-muted);
+        margin: 0 0 var(--space-sm); font-size: var(--font-xs); color: var(--text-muted);
     }
     .row-edit-grid {
         display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: var(--space-md);
+        gap: var(--space-sm);
     }
     .row-edit-wide { grid-column: 1 / -1; }
-    .row-edit-actions { margin-top: var(--space-md); }
-    .row-edit-parts-list { display: grid; gap: var(--space-sm); }
+    .row-edit-actions { margin-top: var(--space-sm); }
+    .row-edit-parts-list { display: grid; gap: var(--space-xs); max-height: 180px; overflow-y: auto; }
     .row-edit-part-item {
         display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
         padding: 0.65rem 0.85rem; border: 1px solid var(--card-border);
@@ -773,26 +792,36 @@
         background: rgba(15, 23, 42, 0.4);
         backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
         display: flex; align-items: center; justify-content: center;
-        padding: var(--space-lg);
+        padding: var(--space-md);
         animation: modalFadeIn 0.2s ease;
+        overflow-y: auto;
     }
     .modal-card {
         background: var(--card-bg); border: 1px solid var(--card-border);
-        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
+        border-radius: var(--radius-xl); width: 100%; max-width: 480px;
+        max-height: min(88vh, 720px);
+        display: flex; flex-direction: column;
         box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
         animation: modalSlideUp 0.25s ease;
+        overflow: hidden;
     }
     .modal-header {
         display: flex; align-items: center; justify-content: space-between;
-        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
+        padding: 0.75rem 1rem; border-bottom: 1px solid var(--card-border);
+        flex-shrink: 0;
     }
-    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
+    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-md); font-weight: 600; color: var(--text-primary); }
     .modal-close {
         background: none; border: none; color: var(--text-muted); cursor: pointer;
         padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast);
     }
     .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
-    .modal-body { padding: var(--space-lg) var(--space-xl); }
+    .modal-body { padding: 0.85rem 1rem; }
+    .modal-body-scroll {
+        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
     .bulk-summary-body { display: grid; gap: var(--space-sm); }
     .bulk-summary-line {
         display: flex; align-items: center; justify-content: space-between;
@@ -803,9 +832,12 @@
     .bulk-summary-line:last-child { border-bottom: none; }
     .bulk-summary-line strong { color: var(--text-primary); font-size: var(--font-md); }
 
+    .modal-card.row-edit-card { max-width: 560px; }
     .modal-footer {
-        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md);
-        padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border);
+        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm);
+        padding: 0.75rem 1rem; border-top: 1px solid var(--card-border);
+        flex-shrink: 0;
+        background: var(--card-bg);
     }
 
     @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1073,6 +1105,18 @@
                 renderParts(parts);
                 rowModal.style.display = 'flex';
                 document.getElementById('row-edit-car-model').focus();
+            });
+        });
+
+        document.querySelectorAll('.part-tag-edit').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                openPartEditor({
+                    part_number: button.dataset.partNumber || '',
+                    brand: button.dataset.partBrand || '',
+                    update_url: button.dataset.updateUrl,
+                });
             });
         });
 

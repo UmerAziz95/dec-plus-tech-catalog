@@ -8,7 +8,7 @@ from inventory.models import (
     Part, PartCrossCode,
 )
 from inventory.services.basket_service import BasketService, BasketServiceCrossCode
-from inventory.services.part_number_utils import sanitize_part_number
+from inventory.services.part_number_utils import sanitize_crosscode_bulk_part, sanitize_part_number
 from inventory.services.spreadsheet_loader import SUPPORTED_EXTENSIONS, load_workbook
 
 
@@ -416,6 +416,54 @@ class BulkSearchServiceCrossCode(BulkSearchService):
     basket_service = BasketServiceCrossCode
 
     @classmethod
+    def _read_rows(cls, sheet, brand_idx, brand_number_idx, part_number_idx):
+        """
+        Cross Code bulk rules:
+        - Strip symbols/spaces; star is removed from the cleaned value.
+        - Any row that contained "*" is auto-missed (no search).
+        - Remaining rows are exact-match only.
+        """
+        rows_data = []
+        part_numbers_to_search = set()
+
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            part_no = row[part_number_idx]
+            if not part_no:
+                continue
+
+            raw = str(part_no).strip()
+            if not raw:
+                continue
+
+            brand = str(row[brand_idx]).strip() if brand_idx != -1 and row[brand_idx] else ''
+            brand_num = (
+                str(row[brand_number_idx]).strip()
+                if brand_number_idx != -1 and row[brand_number_idx]
+                else ''
+            )
+            brand, brand_num = cls.basket_service.normalize_cross_brand_fields(brand, brand_num)
+
+            cleaned, had_star = sanitize_crosscode_bulk_part(raw)
+            if had_star or not cleaned:
+                rows_data.append({
+                    'brand': brand,
+                    'brand_number': brand_num,
+                    'part_number': raw if had_star else cleaned,
+                    'bulk_miss': True,
+                })
+                continue
+
+            rows_data.append({
+                'brand': brand,
+                'brand_number': brand_num,
+                'part_number': cleaned,
+                'bulk_miss': False,
+            })
+            part_numbers_to_search.add(cleaned)
+
+        return rows_data, part_numbers_to_search
+
+    @classmethod
     def run_bulk_search(cls, user, rows_data, save_to_basket=True):
         if not rows_data:
             summary = {
@@ -428,9 +476,10 @@ class BulkSearchServiceCrossCode(BulkSearchService):
             }
             return [], summary, None
 
+        searchable_rows = [row for row in rows_data if not row.get('bulk_miss')]
         part_numbers_to_search = {
-            sanitize_part_number(row['part_number'])
-            for row in rows_data
+            row['part_number']
+            for row in searchable_rows
             if row.get('part_number')
         }
         part_numbers_to_search.discard('')
@@ -442,7 +491,7 @@ class BulkSearchServiceCrossCode(BulkSearchService):
             existing_keys = cls._existing_basket_keys(user, part_numbers_to_search)
             added_to_basket = cls._build_basket_entries(
                 user,
-                rows_data,
+                searchable_rows,
                 parts_by_part_num,
                 cars_by_group_pk,
                 existing_keys,
@@ -468,22 +517,25 @@ class BulkSearchServiceCrossCode(BulkSearchService):
 
         missed_rows = []
         for row_data in rows_data:
-            part_no = sanitize_part_number(row_data['part_number'])
+            if row_data.get('bulk_miss'):
+                missed_rows.append(row_data)
+                continue
+            part_no = row_data['part_number']
             brand = row_data['brand']
             brand_number = row_data['brand_number']
             if not brand or not brand_number or part_no not in parts_by_part_num:
                 missed_rows.append(row_data)
 
-        summary = cls._build_summary(rows_data, parts_by_part_num, matched_car_ids, missed_rows, added_to_basket)
+        summary = cls._build_summary(
+            rows_data, parts_by_part_num, matched_car_ids, missed_rows, added_to_basket,
+        )
         return results, summary, None
 
     @classmethod
     def _load_matches(cls, part_numbers_to_search):
-        """
-        Exact match only against Cross Code Code (part_number) or Product No.
-        No cars/groups are required for the flat Cross Code catalog.
-        """
+        """Exact match on Code / Product No, then expand each product family."""
         from inventory.services.part_number_utils import filter_parts_exact
+        from inventory.services.part_search_service import PartSearchServiceCrossCode
 
         parts_by_part_num = {}
         search_keys = {sanitize_part_number(p) for p in part_numbers_to_search if p}
@@ -496,12 +548,14 @@ class BulkSearchServiceCrossCode(BulkSearchService):
             if not found:
                 found = list(
                     cls.part_model.objects.extra(
-                        where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
+                        where=[
+                            "regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"
+                        ],
                         params=[r'[^A-Za-z0-9]', key],
                     )[:500]
                 )
             if found:
-                parts_by_part_num[key] = found
+                parts_by_part_num[key] = PartSearchServiceCrossCode.expand_product_families(found)
         return parts_by_part_num, {}
 
     @classmethod
@@ -515,11 +569,23 @@ class BulkSearchServiceCrossCode(BulkSearchService):
                 row_data['brand_number'],
             )
             for row_data in rows_data
-            if row_data['brand'] and row_data['brand_number']
+            if row_data['brand'] and row_data['brand_number'] and not row_data.get('bulk_miss')
         }
         basket_map = cls.basket_service.get_or_create_baskets_for_pairs(brand_pairs)
 
+        # Reload existing keys for every expanded Brand+Code in the families.
+        all_part_numbers = {
+            part.part_number
+            for parts in parts_by_part_num.values()
+            for part in parts
+            if part.part_number
+        }
+        if all_part_numbers:
+            existing_keys = cls.basket_service.existing_item_keys(user, all_part_numbers)
+
         for row_data in rows_data:
+            if row_data.get('bulk_miss'):
+                continue
             brand, brand_number = cls.basket_service.normalize_cross_brand_fields(
                 row_data['brand'],
                 row_data['brand_number'],
@@ -531,8 +597,9 @@ class BulkSearchServiceCrossCode(BulkSearchService):
             if not found_parts:
                 continue
             basket = basket_map[(brand, brand_number)]
+            # One basket line per Brand + Code under this Brand Name + Brand Number.
             for part in found_parts:
-                key = (part.id, basket.id)
+                key = ((part.oe_brand or ''), part.part_number, basket.id)
                 if key in existing_keys or key in pending_keys:
                     continue
                 pending_keys.add(key)
@@ -559,9 +626,20 @@ class BulkSearchServiceCrossCode(BulkSearchService):
     def _build_results(rows_data, parts_by_part_num, cars_by_group_pk, basket_part_numbers):
         results = []
         for row_data in rows_data:
-            part_no = sanitize_part_number(row_data['part_number'])
             brand = row_data['brand']
             brand_number = row_data['brand_number']
+            if row_data.get('bulk_miss'):
+                results.append({
+                    'brand': brand,
+                    'brand_number': brand_number,
+                    'part_number': row_data['part_number'],
+                    'status': 'Missed (*)',
+                    'car_count': 0,
+                    'top_cars': [],
+                    'in_basket': False,
+                })
+                continue
+            part_no = sanitize_part_number(row_data['part_number'])
             found_parts = parts_by_part_num.get(part_no, [])
             if not brand or not brand_number:
                 results.append({
@@ -603,13 +681,31 @@ class BulkSearchServiceCrossCode(BulkSearchService):
         return results
 
     @staticmethod
+    def _build_summary(rows_data, parts_by_part_num, matched_car_ids, missed_rows, added_to_basket):
+        found_count = 0
+        for row_data in rows_data:
+            if row_data.get('bulk_miss'):
+                continue
+            if (
+                row_data['brand']
+                and row_data['brand_number']
+                and row_data['part_number'] in parts_by_part_num
+            ):
+                found_count += 1
+        return {
+            'searched_count': len(rows_data),
+            'found_count': found_count,
+            'car_models_matched': len(matched_car_ids),
+            'missed_count': len(missed_rows),
+            'added_to_basket': added_to_basket,
+            'missed_rows': missed_rows,
+        }
+
+    @staticmethod
     def build_sample_workbook():
         workbook = openpyxl.Workbook()
         sheet = workbook.active
-        sheet.title = 'Bulk search-file'
+        sheet.title = 'Bulk search sample'
         sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
-        sheet.append(['Kanoya', 'C13X14', 'PN8807'])
-        sheet.append(['Kanoya', 'C13X15', 'MN102618'])
-        sheet.append(['Kanoya', 'C13X16', '45022-TX4-A01'])
-        sheet.append(['Kanoya', 'C13X17', 'DB1230'])
+        sheet.append(['AISIN', 'AS-12345', '3231A047'])
         return workbook

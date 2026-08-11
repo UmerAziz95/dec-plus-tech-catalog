@@ -8,8 +8,10 @@ from inventory.models import (
 from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import (
     PART_NUMBER_SANITIZE_REGEX,
+    crosscode_wildcard_to_like,
     filter_parts_exact,
     filter_parts_contains,
+    sanitize_crosscode_search,
     sanitize_part_number,
 )
 
@@ -26,8 +28,8 @@ class PartSearchService:
     basket_item_model = BasketItem
     basket_service = BasketService
     source_label = SOURCE_PARTS_CAT
-    # When True, build_results also includes the sibling catalog (Cross Code).
-    include_other_catalog = True
+    # Cross Cars search page stays on its own catalog only.
+    include_other_catalog = False
 
     @classmethod
     def build_results(cls, query):
@@ -147,9 +149,15 @@ class PartSearchService:
             return []
 
         # ── Step 4: Fetch car details ────────────────────────────────
-        # CarGroup.car_id actually stores the Car primary key (as text),
-        # not the business Car.car_id string — filter/lookup by pk.
-        cars = cls.car_model.objects.filter(id__in=list(car_id_set))
+        # CarGroup.car_id stores the Car primary key as text — coerce to int
+        # so orphan/non-numeric values are skipped instead of breaking the join.
+        car_pks = []
+        for raw_id in car_id_set:
+            try:
+                car_pks.append(int(str(raw_id).strip()))
+            except (TypeError, ValueError):
+                continue
+        cars = cls.car_model.objects.filter(id__in=car_pks)
         cars_by_car_id = {str(c.id): c for c in cars}
 
         # ── Step 5: Assemble results ─────────────────────────────────
@@ -309,51 +317,199 @@ class PartSearchServiceCrossCode(PartSearchService):
     include_other_catalog = False
 
     @classmethod
+    def prepare_query(cls, raw_query):
+        """Sanitize for interactive Cross Code search (keeps *)."""
+        return sanitize_crosscode_search(raw_query, keep_star=True)
+
+    @classmethod
+    def _product_no_exact_exists(cls, query):
+        return cls.part_model.objects.extra(
+            where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
+            params=[PART_NUMBER_SANITIZE_REGEX, query],
+        ).exists()
+
+    @classmethod
+    def find_candidate_codes(cls, raw_query, limit=40):
+        """
+        Distinct Code values matching a wildcard (*) or prefix query.
+        Used for the Did you mean? step.
+        """
+        query = sanitize_crosscode_search(raw_query, keep_star=True)
+        if not query:
+            return []
+
+        if '*' in query:
+            like = crosscode_wildcard_to_like(query)
+        else:
+            like = f'{query}%'
+
+        rows = (
+            cls.part_model.objects
+            .extra(
+                where=[
+                    "(part_number_norm LIKE %s ESCAPE '\\' "
+                    "OR regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') "
+                    "LIKE %s ESCAPE '\\')"
+                ],
+                params=[like, PART_NUMBER_SANITIZE_REGEX, like],
+            )
+            .order_by('part_number')
+            .values_list('part_number', flat=True)
+            .distinct()[: max(limit * 5, 100)]
+        )
+
+        candidates = []
+        seen = set()
+        for part_number in rows:
+            key = sanitize_part_number(part_number)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            candidates.append(part_number)
+            if len(candidates) >= limit:
+                break
+        return candidates
+
+    @classmethod
+    def needs_disambiguation(cls, raw_query):
+        """
+        Decide whether interactive search must show Did you mean?
+
+        - Queries with "*" always ask (user picks a concrete Code).
+        - Unique exact match with no longer prefix variants → search immediately
+          (e.g. MR955727).
+        - Prefix / multiple matches → ask (e.g. D1086 → D1086, D10867418, …).
+        """
+        query = sanitize_crosscode_search(raw_query, keep_star=True)
+        if not query:
+            return False, [], query
+
+        if '*' in query:
+            return True, cls.find_candidate_codes(query), query
+
+        candidates = cls.find_candidate_codes(query)
+        longer = [
+            code for code in candidates
+            if sanitize_part_number(code) != query
+        ]
+        has_exact = (
+            filter_parts_exact(query, model=cls.part_model).exists()
+            or cls._product_no_exact_exists(query)
+        )
+
+        if has_exact and not longer:
+            return False, [], query
+
+        if candidates:
+            return True, candidates, query
+
+        return False, [], query
+
+    @classmethod
+    def expand_product_families(cls, parts):
+        """
+        Expand matched rows to the full Product Brand + Product No family.
+
+        Matches the Cross code example.xlsx Bulk search-result rule: searching
+        one Code or Product No pulls every Brand + Code in that product group.
+        """
+        if not parts:
+            return []
+
+        by_id = {part.id: part for part in parts}
+        families = {
+            (part.brand or '', part.product_no or '')
+            for part in parts
+            if (part.brand or part.product_no)
+        }
+        if not families:
+            return list(by_id.values())
+
+        from django.db.models import Q
+        family_q = Q()
+        for brand, product_no in families:
+            family_q |= Q(brand=brand, product_no=product_no)
+
+        for part in cls.part_model.objects.filter(family_q).iterator(chunk_size=500):
+            by_id[part.id] = part
+
+        return sorted(
+            by_id.values(),
+            key=lambda part: (
+                part.brand or '',
+                part.product_no or '',
+                part.oe_brand or '',
+                part.part_number or '',
+            ),
+        )
+
+    @classmethod
     def build_results(cls, query):
-        """Flat Cross Code rows: Product Brand / Product No / Brand / Code."""
-        query = sanitize_part_number(query)
+        """Exact Code / Product No match, expanded to full product families."""
+        query = sanitize_crosscode_search(query, keep_star=False)
         if not query:
             return []
 
         matching_parts = list(filter_parts_exact(query, model=cls.part_model))
-        if not matching_parts:
-            matching_parts = list(
-                filter_parts_contains(query, model=cls.part_model)[:10000]
-            )
-
-        # Also match Product No when Code search finds nothing (or in addition).
         product_matches = list(
             cls.part_model.objects.extra(
                 where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
                 params=[PART_NUMBER_SANITIZE_REGEX, query],
             )[:5000]
         )
-        if not matching_parts and not product_matches:
-            product_matches = list(
-                cls.part_model.objects.extra(
-                    where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') ILIKE %s"],
-                    params=[PART_NUMBER_SANITIZE_REGEX, f'%{query}%'],
-                )[:5000]
-            )
 
         by_id = {}
         for part in matching_parts + product_matches:
             by_id[part.id] = part
 
-        results = []
-        for part in by_id.values():
-            results.append({
-                'part': part,
-                'parts': [part],
-                'source': cls.source_label,
-            })
-        results.sort(key=lambda item: (
-            item['part'].brand or '',
-            item['part'].product_no or '',
-            item['part'].oe_brand or '',
-            item['part'].part_number or '',
-        ))
-        return results
+        expanded = cls.expand_product_families(list(by_id.values()))
+        return [{
+            'part': part,
+            'parts': [part],
+            'source': cls.source_label,
+        } for part in expanded]
+
+    @classmethod
+    def matching_parts_exist(cls, query):
+        query = sanitize_crosscode_search(query, keep_star=False)
+        if not query:
+            return False
+        if filter_parts_exact(query, model=cls.part_model).exists():
+            return True
+        return cls._product_no_exact_exists(query)
+
+    @classmethod
+    def suggest_part_numbers(cls, query, limit=40):
+        """Autocomplete suggestions — prefix first, then contains."""
+        query = sanitize_crosscode_search(query, keep_star=False)
+        if len(query) < 1:
+            return []
+
+        suggestions = []
+        seen = set()
+
+        def collect(where_sql, param):
+            rows = (
+                cls.part_model.objects
+                .extra(where=[where_sql], params=[param])
+                .order_by('part_number')
+                .values_list('part_number', flat=True)
+                .distinct()[:limit]
+            )
+            for part_number in rows:
+                key = sanitize_part_number(part_number)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                suggestions.append(part_number)
+                if len(suggestions) >= limit:
+                    return True
+            return False
+
+        if collect('part_number_norm LIKE %s', f'{query}%'):
+            return suggestions
+        collect('part_number_norm ILIKE %s', f'%{query}%')
+        return suggestions
 
     @classmethod
     def add_results_to_basket(cls, user, results, brand, brand_number):
@@ -365,23 +521,29 @@ class PartSearchServiceCrossCode(PartSearchService):
             else:
                 parts.extend(item.get('parts') or [])
 
+        parts = cls.expand_product_families(parts)
         if not parts:
             return 0
 
-        part_numbers = {p.part_number for p in parts}
-        existing_keys = cls.basket_service.existing_item_keys(user, part_numbers)
+        line_keys = {
+            ((p.oe_brand or ''), p.part_number)
+            for p in parts
+            if p.part_number
+        }
+        existing_keys = cls.basket_service.existing_item_keys(
+            user,
+            [part_number for _oe_brand, part_number in line_keys],
+        )
         basket, _created = cls.basket_service.get_or_create_basket(brand, brand_number)
 
         entries = []
         pending_keys = set()
         batch_size = getattr(settings, 'IMPORT_ROW_BATCH_SIZE', 200)
-        seen_part_ids = set()
 
         for part in parts:
-            if part.id in seen_part_ids:
+            if not part.part_number:
                 continue
-            seen_part_ids.add(part.id)
-            key = (part.id, basket.id)
+            key = ((part.oe_brand or ''), part.part_number, basket.id)
             if key in existing_keys or key in pending_keys:
                 continue
             pending_keys.add(key)
@@ -402,7 +564,7 @@ class PartSearchServiceCrossCode(PartSearchService):
 
     @staticmethod
     def build_export_workbook(raw_query, results):
-        normalized = sanitize_part_number(raw_query)
+        normalized = sanitize_crosscode_search(raw_query, keep_star=False)
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Cross Code search'

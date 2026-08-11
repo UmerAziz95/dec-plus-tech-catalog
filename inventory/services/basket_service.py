@@ -260,22 +260,25 @@ class BasketService:
 
 class BasketServiceCrossCode(BasketService):
     """
-    Cross Code basket: one BasketCrossCode per Brand Name + Brand Number,
-    unique PartCrossCode rows under each (no car required).
+    Cross Code basket: one BasketCrossCode per Brand Name + Brand Number.
+
+    Unique line under each group = Brand (oe_brand) + Part Number (Code),
+    matching Cross code example.xlsx Bulk search-result.
     """
     basket_model = BasketCrossCode
     basket_item_model = BasketItemCrossCode
 
     @classmethod
     def get_items_queryset(cls, user):
+        """One visible row per Brand Name + Brand Number + Brand + Code."""
         return cls.basket_item_model.objects.filter(
             user=user,
         ).select_related('basket', 'part').order_by(
             'basket__brand', 'basket__brand_number',
-            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number', '-id',
+            'part__oe_brand', 'part__part_number', '-id',
         ).distinct(
             'basket__brand', 'basket__brand_number',
-            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number',
+            'part__oe_brand', 'part__part_number',
         )
 
     @classmethod
@@ -298,7 +301,8 @@ class BasketServiceCrossCode(BasketService):
         brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
         return cls.basket_item_model.objects.filter(
             user=user,
-            part=part,
+            part__oe_brand=part.oe_brand or '',
+            part__part_number=part.part_number,
             basket__brand=brand,
             basket__brand_number=brand_number,
         ).exists()
@@ -307,6 +311,14 @@ class BasketServiceCrossCode(BasketService):
     def add_item(cls, user, part, brand, brand_number, car=None):
         brand, brand_number = cls.normalize_cross_brand_fields(brand, brand_number)
         basket, _created = cls.get_or_create_basket(brand, brand_number)
+        existing = cls.basket_item_model.objects.filter(
+            user=user,
+            basket=basket,
+            part__oe_brand=part.oe_brand or '',
+            part__part_number=part.part_number,
+        ).select_related('part', 'basket').first()
+        if existing:
+            return existing, False
         item, created = cls.basket_item_model.objects.get_or_create(
             user=user,
             part=part,
@@ -317,11 +329,13 @@ class BasketServiceCrossCode(BasketService):
 
     @classmethod
     def remove_item(cls, item):
+        """Remove this Brand + Code line (and any hidden duplicates)."""
         basket_id = item.basket_id
         cls.basket_item_model.objects.filter(
             user=item.user,
             basket_id=item.basket_id,
-            part_id=item.part_id,
+            part__oe_brand=item.part.oe_brand or '',
+            part__part_number=item.part.part_number,
         ).delete()
         if not cls.basket_item_model.objects.filter(basket_id=basket_id).exists():
             cls.basket_model.objects.filter(pk=basket_id).delete()
@@ -330,13 +344,14 @@ class BasketServiceCrossCode(BasketService):
     def remove_duplicates(cls, user):
         items = cls.basket_item_model.objects.filter(user=user).order_by('id').values_list(
             'id',
-            'part_id',
+            'part__oe_brand',
+            'part__part_number',
             'basket_id',
         )
         seen = set()
         duplicate_ids = []
-        for item_id, part_id, basket_id in items:
-            key = (part_id, basket_id)
+        for item_id, oe_brand, part_number, basket_id in items:
+            key = (oe_brand or '', part_number, basket_id)
             if key in seen:
                 duplicate_ids.append(item_id)
             else:
@@ -351,23 +366,29 @@ class BasketServiceCrossCode(BasketService):
 
     @classmethod
     def build_export_workbook(cls, user):
+        """
+        Export like Cross code example.xlsx Bulk search-result:
+        Cross Brand | Cross Code | Brand | Part Number
+        Includes one Product Brand / Product No row per family, then each Code.
+        """
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Basket'
-        sheet.append([
-            'Brand Name',
-            'Brand Number',
-            'Product Brand',
-            'Product No',
-            'Brand',
-            'Code',
-        ])
+        sheet.append(['Cross Brand', 'Cross Code', 'Brand', 'Part Number'])
+
+        seen_product_rows = set()
         for item in cls.get_items_queryset(user):
+            cross_brand = item.basket.brand
+            cross_code = item.basket.brand_number
+            product_brand = item.part.brand or ''
+            product_no = item.part.product_no or ''
+            product_key = (cross_brand, cross_code, product_brand, product_no)
+            if product_brand and product_no and product_key not in seen_product_rows:
+                seen_product_rows.add(product_key)
+                sheet.append([cross_brand, cross_code, product_brand, product_no])
             sheet.append([
-                item.basket.brand,
-                item.basket.brand_number,
-                item.part.brand or '',
-                item.part.product_no or '',
+                cross_brand,
+                cross_code,
                 item.part.oe_brand or '',
                 item.part.part_number,
             ])
@@ -375,12 +396,13 @@ class BasketServiceCrossCode(BasketService):
 
     @classmethod
     def existing_item_keys(cls, user, part_numbers):
+        """Keys are (oe_brand, part_number, basket_id)."""
         return {
-            (part_id, basket_id)
-            for part_id, basket_id in cls.basket_item_model.objects.filter(
+            (oe_brand or '', part_number, basket_id)
+            for oe_brand, part_number, basket_id in cls.basket_item_model.objects.filter(
                 user=user,
                 part__part_number__in=part_numbers,
-            ).values_list('part_id', 'basket_id')
+            ).values_list('part__oe_brand', 'part__part_number', 'basket_id')
         }
 
     @classmethod
@@ -389,10 +411,24 @@ class BasketServiceCrossCode(BasketService):
             user=user,
             basket_id=basket_id,
         ).select_related('basket', 'part').order_by(
-            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number', '-id',
+            'part__oe_brand', 'part__part_number', '-id',
         ).distinct(
-            'part__brand', 'part__product_no', 'part__oe_brand', 'part__part_number',
+            'part__oe_brand', 'part__part_number',
         )
+
+    @classmethod
+    def filter_basket_groups(cls, user, query):
+        """Basket page lists unique Brand Name + Brand Number groups."""
+        groups = cls.get_user_basket_groups(user)
+        query = cls.clean_search_query(query)
+        if not query:
+            return groups
+        q = query.lower()
+        return [
+            group for group in groups
+            if q in (group.brand or '').lower()
+            or q in (group.brand_number or '').lower()
+        ]
 
     @classmethod
     def filter_group_items_queryset(cls, user, basket_id, query):

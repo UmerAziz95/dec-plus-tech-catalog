@@ -32,6 +32,7 @@
         {% if batch.status == 'completed' or batch.status == 'failed' %}
         <form method="post" action="{% url 'inventory:import_batch_delete' batch.id %}" class="inline-form" data-confirm="Delete this import? This removes all cars, groups, and parts it added." data-confirm-title="Delete import" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
             {% csrf_token %}
+            <input type="hidden" name="catalog" value="{% if batch.import_type == 'parts_crosscode' or batch.import_type == 'cars_crosscode' or batch.import_type == 'groups_crosscode' %}crosscode{% else %}cars{% endif %}">
             <button type="submit" class="btn btn-danger btn-sm import-history-delete-btn">Delete</button>
         </form>
         {% endif %}

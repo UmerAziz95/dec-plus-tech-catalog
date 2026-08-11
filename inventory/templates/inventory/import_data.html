@@ -2,11 +2,11 @@
 
 
 
-{% block title %}Import Data{% endblock %}
+{% block title %}Import Data — {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %}{% endblock %}
 
-{% block page_title %}Import Data{% endblock %}
+{% block page_title %}Import Data — {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %}{% endblock %}
 
-{% block breadcrumb %}Home / Import Data{% endblock %}
+{% block breadcrumb %}Home / {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %} / Import Data{% endblock %}
 
 
 
@@ -17,24 +17,23 @@
     <div class="card" style="margin-bottom: var(--space-xl);">
 
         <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
-
-            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Car and Cross Code imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
-
+            {% if import_catalog == 'crosscode' %}
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Code imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically.
+            {% else %}
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Cars imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
+            {% endif %}
         </p>
 
-
-
-        <div class="import-fast-move" role="navigation" aria-label="Jump to import section">
+        {% if import_catalog == 'crosscode' %}
+        <div class="import-fast-move" role="navigation" aria-label="Jump to Cross Code section">
             <span class="import-fast-move-label">Jump to</span>
-            <a href="{% url 'inventory:import_data' %}?catalog=cars#cross-car-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'cars' %} is-active{% endif %}">Cross Car</a>
-            <a href="{% url 'inventory:import_data' %}?catalog=crosscode#cross-code-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'crosscode' %} is-active{% endif %}">Cross Code</a>
-            <a href="#cross-code-import" class="btn btn-secondary btn-sm import-fast-move-btn">CC Import</a>
-            <a href="#cross-code-manual" class="btn btn-secondary btn-sm import-fast-move-btn">CC Manual</a>
+            <a href="#cross-code-import" class="btn btn-secondary btn-sm import-fast-move-btn">Import</a>
+            <a href="#cross-code-manual" class="btn btn-secondary btn-sm import-fast-move-btn">Manual add</a>
             <a href="#import-data-page" class="btn btn-secondary btn-sm import-fast-move-btn">Top</a>
         </div>
+        {% endif %}
 
-        <span class="section-heading" id="cross-car-section" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
-
+        {% if import_catalog == 'cars' %}
         <div class="import-type-grid">
 
             <section class="import-type-card">
@@ -212,15 +211,15 @@
             </section>
 
         </div>
+        {% endif %}
 
-        <span class="section-heading" id="cross-code-section" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
-
+        {% if import_catalog == 'crosscode' %}
         <div class="import-type-grid">
 
             <section class="import-type-card" id="cross-code-import">
                 <div class="import-type-layout">
                 <div class="import-type-main">
-                <h3 class="import-type-title">6. Import Cross Code Excel</h3>
+                <h3 class="import-type-title">1. Import Cross Code Excel</h3>
 
                 <p class="import-type-text">
                     Upload a workbook with columns
@@ -253,7 +252,7 @@
 
             <section class="import-type-card" id="cross-code-manual">
                 <div class="import-type-main" style="width: 100%;">
-                <h3 class="import-type-title">7. Add a Cross Code row manually</h3>
+                <h3 class="import-type-title">2. Add a Cross Code row manually</h3>
 
                 <p class="import-type-text">Add one Product Brand / Product No / Brand / Code row without uploading a file.</p>
 
@@ -287,8 +286,7 @@
             </section>
 
         </div>
-
-
+        {% endif %}
 
         {% if form.errors %}
 
@@ -419,14 +417,6 @@
         white-space: nowrap;
     }
 
-    .import-fast-move-btn.is-active {
-        background: var(--accent, #2563eb);
-        border-color: var(--accent, #2563eb);
-        color: #fff;
-    }
-
-    #cross-car-section,
-    #cross-code-section,
     #cross-code-import,
     #cross-code-manual {
         scroll-margin-top: 72px;
@@ -670,15 +660,6 @@
 {% block extra_js %}
 
 <script>
-
-    (function () {
-        if (window.location.hash) return;
-        var catalog = '{{ import_catalog|default:"cars" }}';
-        var targetId = catalog === 'crosscode' ? 'cross-code-section' : null;
-        if (!targetId) return;
-        var el = document.getElementById(targetId);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    })();
 
     (function () {
 
