@@ -18,7 +18,7 @@ from .models import (
 from .services.basket_service import BasketService, BasketServiceCrossCode
 from .services.bulk_search_service import BulkSearchService
 from .services.car_catalog_service import CarCatalogService
-from .services.import_services import ExcelImportService
+from .services.import_services import ExcelImportService, ImportBatchDeleteService
 from .services.manual_entry_service import ManualEntryService
 from .services.part_number_utils import sanitize_part_number
 from .services.part_search_service import PartSearchService
@@ -239,21 +239,23 @@ def import_data_view(request):
             uploaded_by=request.user,
         ).first()
     catalog = _import_catalog_from_request(request, active_batch=active_batch)
-    history_limit = 10
+    history_limit = 50
     user_batches = ImportBatch.objects.filter(uploaded_by=request.user)
+    catalog_types = (
+        ImportBatch.CROSSCODE_CATALOG_TYPES
+        if catalog == 'crosscode'
+        else ImportBatch.CARS_CATALOG_TYPES
+    )
+    file_import_history = list(
+        user_batches.filter(import_type__in=catalog_types).order_by('-created_at')[:history_limit]
+    )
     context = {
         'active_page': 'import_data_crosscode' if catalog == 'crosscode' else 'import_data',
         'import_catalog': catalog,
         'form': form,
         'active_batch': active_batch,
         'import_types': ImportBatch.IMPORT_TYPE_CHOICES,
-        'cars_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CARS).order_by('-created_at')[:history_limit],
-        'groups_import_history': user_batches.filter(import_type=ImportBatch.TYPE_GROUPS).order_by('-created_at')[:history_limit],
-        'parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_PARTS).order_by('-created_at')[:history_limit],
-        'car_with_parts_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CAR_WITH_PARTS).order_by('-created_at')[:history_limit],
-        'cars_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_CARS_CROSSCODE).order_by('-created_at')[:history_limit],
-        'groups_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_GROUPS_CROSSCODE).order_by('-created_at')[:history_limit],
-        'parts_crosscode_import_history': user_batches.filter(import_type=ImportBatch.TYPE_PARTS_CROSSCODE).order_by('-created_at')[:history_limit],
+        'file_import_history': file_import_history,
         'basket_count': BasketService.count_for_user(request.user),
         'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
         'max_upload_size_bytes': getattr(settings, 'IMPORT_MAX_UPLOAD_SIZE_BYTES', 5 * 1024 * 1024 * 1024),
@@ -267,27 +269,39 @@ def import_data_view(request):
 
 @login_required
 def import_history_view(request):
-    history_limit = 10
-    user_batches = ImportBatch.objects.filter(uploaded_by=request.user)
-    html = {}
-    poll_active = {}
-    for import_type, _label in ImportBatch.IMPORT_TYPE_CHOICES:
-        history = list(
-            user_batches.filter(import_type=import_type).order_by('-created_at')[:history_limit]
-        )
-        html[import_type] = render_to_string(
-            'inventory/partials/import_history_items.html',
-            {'history': history},
-            request=request,
-        )
-        poll_active[import_type] = bool(
-            history
-            and history[0].status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING)
-        )
+    """JSON refresh for the File import history table (catalog-scoped)."""
+    history_limit = 50
+    catalog = (request.GET.get('catalog') or 'cars').strip().lower()
+    if catalog not in ('cars', 'crosscode'):
+        catalog = 'cars'
+    catalog_types = (
+        ImportBatch.CROSSCODE_CATALOG_TYPES
+        if catalog == 'crosscode'
+        else ImportBatch.CARS_CATALOG_TYPES
+    )
+    history = list(
+        ImportBatch.objects.filter(
+            uploaded_by=request.user,
+            import_type__in=catalog_types,
+        ).order_by('-created_at')[:history_limit]
+    )
+    table_html = render_to_string(
+        'inventory/partials/import_file_history_rows.html',
+        {
+            'file_import_history': history,
+            'import_catalog': catalog,
+        },
+        request=request,
+    )
+    poll = any(
+        item.status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING)
+        for item in history
+    )
     return JsonResponse({
-        'html': html,
-        'poll_active': poll_active,
-        'poll': any(poll_active.values()),
+        'table_html': table_html,
+        'poll': poll,
+        'catalog': catalog,
+        'count': len(history),
     })
 
 
@@ -341,67 +355,59 @@ def manual_add_part_view(request):
 
 @login_required
 @require_POST
-@transaction.atomic
 def import_batch_delete_view(request, batch_id):
     batch = get_object_or_404(ImportBatch, pk=batch_id, uploaded_by=request.user)
     catalog = _import_catalog_from_request(request, import_type=batch.import_type)
 
     if batch.status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING):
-        messages.error(request, 'This import is still running — wait for it to finish before deleting.')
+        messages.error(
+            request,
+            'This import is still running or already being deleted — wait for it to finish.',
+        )
         return redirect(_import_data_url(catalog=catalog))
 
-    # Only rows this batch created (import_batch stamp) are removed.
-    # Use SQL deletes for parts so large Cross Code imports undo reliably
-    # instead of timing out in the ORM collector.
-    car_pks = [str(pk) for pk in Car.objects.filter(import_batch=batch).values_list('id', flat=True)]
-    car_cc_pks = [str(pk) for pk in CarCrossCode.objects.filter(import_batch=batch).values_list('id', flat=True)]
-
-    cars_deleted, _ = Car.objects.filter(import_batch=batch).delete()
-    groups_deleted, _ = CarGroup.objects.filter(import_batch=batch).delete()
-    if car_pks:
-        orphan_groups, _ = CarGroup.objects.filter(car_id__in=car_pks).delete()
-        groups_deleted += orphan_groups
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            'DELETE FROM basket_items WHERE part_id IN '
-            '(SELECT id FROM parts WHERE import_batch_id = %s)',
-            [batch.id],
-        )
-        cursor.execute('DELETE FROM parts WHERE import_batch_id = %s', [batch.id])
-        parts_deleted = cursor.rowcount
-
-    cars_cc_deleted, _ = CarCrossCode.objects.filter(import_batch=batch).delete()
-    groups_cc_deleted, _ = CarGroupCrossCode.objects.filter(import_batch=batch).delete()
-    if car_cc_pks:
-        orphan_cc_groups, _ = CarGroupCrossCode.objects.filter(car_id__in=car_cc_pks).delete()
-        groups_cc_deleted += orphan_cc_groups
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            'DELETE FROM basket_items_crosscode WHERE part_id IN '
-            '(SELECT id FROM parts_crosscode WHERE import_batch_id = %s)',
-            [batch.id],
-        )
-        cursor.execute('DELETE FROM parts_crosscode WHERE import_batch_id = %s', [batch.id])
-        parts_cc_deleted = cursor.rowcount
-
-    cars_deleted += cars_cc_deleted
-    groups_deleted += groups_cc_deleted
-    parts_deleted += parts_cc_deleted
-    batch.delete()
+    # Large imports (millions of rows) must delete in background chunks.
+    # A single SQL DELETE can hit PostgreSQL's 1GB alloc limit.
+    try:
+        ImportBatchDeleteService.enqueue(batch.id)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_import_data_url(catalog=catalog))
 
     messages.success(
         request,
-        f'Deleted import "{batch.original_file_name}": removed {cars_deleted} car(s), '
-        f'{groups_deleted} group link(s), {parts_deleted} part(s).',
+        f'Delete started for "{batch.original_file_name}". '
+        f'Large files are removed in the background — keep this page open to watch progress.',
     )
-    return redirect(_import_data_url(catalog=catalog))
+    return redirect(_import_data_url(catalog=catalog, batch_id=batch.id))
 
 
 @login_required
 def import_batch_status_view(request, batch_id):
-    batch = get_object_or_404(ImportBatch, pk=batch_id, uploaded_by=request.user)
+    batch = ImportBatch.objects.filter(pk=batch_id, uploaded_by=request.user).first()
+    if not batch:
+        # Batch removed after a background delete finished.
+        return JsonResponse({
+            'status': True,
+            'data': {
+                'batch_id': batch_id,
+                'import_type': '',
+                'original_file_name': '',
+                'job_status': ImportBatch.STATUS_COMPLETED,
+                'progress_note': 'Delete finished — this import was removed.',
+                'failure_reason': '',
+                'total_rows': 0,
+                'cars_count': 0,
+                'groups_count': 0,
+                'links_count': 0,
+                'parts_count': 0,
+                'error_count': 0,
+                'completed_at': None,
+            },
+            'errors': [],
+            'deleted': True,
+        })
+
     errors = []
     if batch.status == ImportBatch.STATUS_FAILED or batch.error_count:
         errors = list(
@@ -531,7 +537,7 @@ def bulk_search_sample_export_view(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = 'attachment; filename="bulk_search_sample.xlsx"'
+    response['Content-Disposition'] = 'attachment; filename="cross_cars_bulk_search_file.xlsx"'
     workbook.save(response)
     return response
 

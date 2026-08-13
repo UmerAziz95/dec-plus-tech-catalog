@@ -26,11 +26,13 @@
         {% endif %}
         {% if batch.status == 'failed' and batch.failure_reason %}
         <p class="import-history-error">{{ batch.failure_reason|truncatechars:160 }}</p>
+        {% elif batch.status == 'processing' and batch.progress_note %}
+        <p class="import-history-finished">{{ batch.progress_note }}</p>
         {% elif batch.completed_at and batch.status == 'completed' %}
         <p class="import-history-finished">Finished {{ batch.completed_at|date:"M j, Y" }} · {{ batch.completed_at|time:"g:i A" }}</p>
         {% endif %}
         {% if batch.status == 'completed' or batch.status == 'failed' %}
-        <form method="post" action="{% url 'inventory:import_batch_delete' batch.id %}" class="inline-form" data-confirm="Delete this import? This removes all cars, groups, and parts it added." data-confirm-title="Delete import" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+        <form method="post" action="{% url 'inventory:import_batch_delete' batch.id %}" class="inline-form" data-confirm="Delete this import? This removes all cars, groups, and parts it added. Large files delete in the background." data-confirm-title="Delete import" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
             {% csrf_token %}
             <input type="hidden" name="catalog" value="{% if batch.import_type == 'parts_crosscode' or batch.import_type == 'cars_crosscode' or batch.import_type == 'groups_crosscode' %}crosscode{% else %}cars{% endif %}">
             <button type="submit" class="btn btn-danger btn-sm import-history-delete-btn">Delete</button>

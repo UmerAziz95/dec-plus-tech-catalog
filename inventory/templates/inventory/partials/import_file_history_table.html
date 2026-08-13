@@ -1,0 +1,15 @@
+<section class="card file-import-history" id="file-import-history" data-file-history-catalog="{{ import_catalog }}">
+    <div class="file-import-history-header">
+        <div>
+            <h3 class="card-title">File import history</h3>
+            <p class="file-import-history-note">
+                All files imported in this section. Delete removes the history row and the data that import added.
+                Large files delete in the background in small chunks — progress appears below.
+            </p>
+        </div>
+    </div>
+
+    <div class="table-wrapper" data-file-history-body>
+        {% include "inventory/partials/import_file_history_rows.html" %}
+    </div>
+</section>

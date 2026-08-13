@@ -135,22 +135,22 @@
                     <p class="page-breadcrumb">{% block breadcrumb %}Home{% endblock %}</p>
                 </div>
             </div>
-            <div class="topbar-right">
-                <div class="topbar-messages" id="app-toast-stack" aria-live="polite" aria-atomic="false">
-                    {% if messages %}
-                    {% for message in messages %}
-                    <div class="toast toast-{{ message.tags }}" role="alert">
-                        <span class="toast-icon">
-                            {% if message.tags == 'success' %}&#10003;{% elif message.tags == 'error' %}&#10007;{% elif message.tags == 'info' %}&#8505;{% else %}&#9888;{% endif %}
-                        </span>
-                        <span class="toast-text">{{ message }}</span>
-                        <button type="button" class="toast-close" aria-label="Close">&times;</button>
-                    </div>
-                    {% endfor %}
-                    {% endif %}
-                </div>
-            </div>
+            <div class="topbar-right"></div>
         </header>
+
+        <div class="app-toast-stack" id="app-toast-stack" aria-live="polite" aria-atomic="false">
+            {% if messages %}
+            {% for message in messages %}
+            <div class="toast toast-{{ message.tags }}" role="alert">
+                <span class="toast-icon">
+                    {% if message.tags == 'success' %}&#10003;{% elif message.tags == 'error' %}&#10007;{% elif message.tags == 'info' %}&#8505;{% else %}&#9888;{% endif %}
+                </span>
+                <span class="toast-text">{{ message }}</span>
+                <button type="button" class="toast-close" aria-label="Close">&times;</button>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
 
         <!-- Page Content -->
         <main class="content" id="content">

@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
 from inventory.models import (
@@ -401,6 +401,7 @@ class ExcelImportService:
         }
 
     def _upsert_crosscode_parts_batched(self, rows, batch, bs):
+        """Create new Cross Code rows, or update matching ones (no skip-on-duplicate)."""
         total = len(rows)
         saved = 0
         for start in range(0, total, bs):
@@ -416,16 +417,16 @@ class ExcelImportService:
                 )
             }
             to_create = []
-            to_claim = []
+            to_update = []
             for row in chunk:
                 key = (row['brand'], row['product_no'], row['oe_brand'], row['part_number'])
                 existing_item = existing.get(key)
                 if existing_item is not None:
-                    # Claim unstamped rows so history delete can undo them.
-                    if existing_item.import_batch_id is None:
-                        existing_item.import_batch = batch
-                        to_claim.append(existing_item)
+                    existing_item.group_id = row['group_id']
+                    existing_item.import_batch = batch
+                    to_update.append(existing_item)
                     continue
+                # Reserve the key so the same chunk cannot create duplicates.
                 existing[key] = None
                 to_create.append(PartCrossCode(
                     group_id=row['group_id'],
@@ -435,9 +436,13 @@ class ExcelImportService:
                     part_number=row['part_number'],
                     import_batch=batch,
                 ))
-            if to_claim:
-                PartCrossCode.objects.bulk_update(to_claim, ['import_batch'], batch_size=bs)
-                saved += len(to_claim)
+            if to_update:
+                PartCrossCode.objects.bulk_update(
+                    to_update,
+                    ['group_id', 'import_batch'],
+                    batch_size=bs,
+                )
+                saved += len(to_update)
             if to_create:
                 with transaction.atomic():
                     PartCrossCode.objects.bulk_create(to_create, batch_size=bs)
@@ -972,3 +977,199 @@ class ExcelImportService:
         sheet.append(['Car Name', 'Part Number'])
         sheet.append(['SAMPLE CAR MODEL NAME 2020-2024', 'SAMPLE-PART-001'])
         return workbook
+
+
+class ImportBatchDeleteService:
+    """
+    Undo an import without loading millions of rows into memory.
+
+    Large single DELETE / IN (SELECT …) statements can hit PostgreSQL's
+    ~1GB allocation limit (invalid memory alloc request size 1073741824).
+    Deletes run in small committed chunks, preferably on a background thread.
+    """
+    CHUNK_SIZE = 20_000
+
+    @classmethod
+    def enqueue(cls, batch_id):
+        batch = ImportBatch.objects.get(pk=batch_id)
+        if batch.status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING):
+            raise ValueError('Import is still running or already being deleted.')
+
+        ImportBatch.objects.filter(pk=batch_id).update(
+            status=ImportBatch.STATUS_PROCESSING,
+            progress_note='Deleting imported rows…',
+            failure_reason='',
+            updated_at=timezone.now(),
+        )
+
+        def worker():
+            close_old_connections()
+            try:
+                cls.execute(batch_id)
+            except Exception as exc:
+                ImportBatch.objects.filter(pk=batch_id).update(
+                    status=ImportBatch.STATUS_FAILED,
+                    failure_reason=f'Delete failed: {exc}',
+                    progress_note='Delete failed',
+                    updated_at=timezone.now(),
+                )
+            finally:
+                close_old_connections()
+
+        threading.Thread(target=worker, name=f'import-delete-{batch_id}', daemon=True).start()
+
+    @classmethod
+    def execute(cls, batch_id):
+        batch = ImportBatch.objects.get(pk=batch_id)
+        counts = {
+            'cars': 0,
+            'groups': 0,
+            'parts': 0,
+            'basket_items': 0,
+        }
+
+        # Basket lines first (FK to parts), then catalog rows.
+        counts['basket_items'] += cls._chunked_delete_join(
+            child_table='basket_items',
+            parent_table='parts',
+            child_fk='part_id',
+            batch_id=batch_id,
+            progress='Deleting basket items…',
+        )
+        counts['parts'] += cls._chunked_delete_by_batch(
+            'parts', batch_id, progress='Deleting parts…',
+        )
+
+        counts['basket_items'] += cls._chunked_delete_join(
+            child_table='basket_items_crosscode',
+            parent_table='parts_crosscode',
+            child_fk='part_id',
+            batch_id=batch_id,
+            progress='Deleting Cross Code basket items…',
+        )
+        counts['parts'] += cls._chunked_delete_by_batch(
+            'parts_crosscode', batch_id, progress='Deleting Cross Code parts…',
+        )
+
+        # Groups that belong to this batch, then groups orphaned by deleted cars.
+        counts['groups'] += cls._chunked_delete_by_batch(
+            'car_groups', batch_id, progress='Deleting group links…',
+        )
+        counts['groups'] += cls._chunked_delete_join(
+            child_table='car_groups',
+            parent_table='cars',
+            child_fk='car_id',
+            batch_id=batch_id,
+            progress='Deleting orphan group links…',
+            cast_parent_id_to_text=True,
+        )
+        counts['cars'] += cls._chunked_delete_by_batch(
+            'cars', batch_id, progress='Deleting cars…',
+        )
+
+        counts['groups'] += cls._chunked_delete_by_batch(
+            'car_groups_crosscode', batch_id, progress='Deleting Cross Code group links…',
+        )
+        counts['groups'] += cls._chunked_delete_join(
+            child_table='car_groups_crosscode',
+            parent_table='cars_crosscode',
+            child_fk='car_id',
+            batch_id=batch_id,
+            progress='Deleting orphan Cross Code group links…',
+            cast_parent_id_to_text=True,
+        )
+        counts['cars'] += cls._chunked_delete_by_batch(
+            'cars_crosscode', batch_id, progress='Deleting Cross Code cars…',
+        )
+
+        ImportRowError.objects.filter(batch_id=batch_id).delete()
+
+        stored = batch.stored_file_path
+        ImportBatch.objects.filter(pk=batch_id).delete()
+
+        if stored:
+            try:
+                Path(stored).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        return counts
+
+    @classmethod
+    def _update_progress(cls, batch_id, note):
+        ImportBatch.objects.filter(pk=batch_id).update(
+            progress_note=note,
+            updated_at=timezone.now(),
+        )
+
+    @classmethod
+    def _chunked_delete_by_batch(cls, table, batch_id, progress=''):
+        """DELETE FROM table WHERE import_batch_id = %s in small chunks."""
+        if progress:
+            cls._update_progress(batch_id, progress)
+        total = 0
+        sql = (
+            f'DELETE FROM {table} '
+            f'WHERE ctid IN ('
+            f'  SELECT ctid FROM {table} '
+            f'  WHERE import_batch_id = %s '
+            f'  LIMIT %s'
+            f')'
+        )
+        while True:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, [batch_id, cls.CHUNK_SIZE])
+                    deleted = cursor.rowcount
+            if deleted <= 0:
+                break
+            total += deleted
+            if progress:
+                cls._update_progress(
+                    batch_id,
+                    f'{progress} ({total:,} removed)',
+                )
+        return total
+
+    @classmethod
+    def _chunked_delete_join(
+        cls,
+        child_table,
+        parent_table,
+        child_fk,
+        batch_id,
+        progress='',
+        cast_parent_id_to_text=False,
+    ):
+        """
+        Delete child rows that reference parent rows stamped with this batch.
+        Used for basket items and orphan car_groups.
+        """
+        if progress:
+            cls._update_progress(batch_id, progress)
+        parent_id_expr = 'p.id::text' if cast_parent_id_to_text else 'p.id'
+        total = 0
+        sql = (
+            f'DELETE FROM {child_table} c '
+            f'WHERE c.ctid IN ('
+            f'  SELECT c2.ctid '
+            f'  FROM {child_table} c2 '
+            f'  INNER JOIN {parent_table} p ON c2.{child_fk} = {parent_id_expr} '
+            f'  WHERE p.import_batch_id = %s '
+            f'  LIMIT %s'
+            f')'
+        )
+        while True:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, [batch_id, cls.CHUNK_SIZE])
+                    deleted = cursor.rowcount
+            if deleted <= 0:
+                break
+            total += deleted
+            if progress:
+                cls._update_progress(
+                    batch_id,
+                    f'{progress} ({total:,} removed)',
+                )
+        return total

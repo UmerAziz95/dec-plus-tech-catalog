@@ -466,6 +466,45 @@ class ImportBatch(models.Model):
     def __str__(self):
         return f"{self.original_file_name} ({self.status})"
 
+    CARS_CATALOG_TYPES = (
+        TYPE_CARS,
+        TYPE_GROUPS,
+        TYPE_PARTS,
+        TYPE_CAR_WITH_PARTS,
+    )
+    CROSSCODE_CATALOG_TYPES = (
+        TYPE_CARS_CROSSCODE,
+        TYPE_GROUPS_CROSSCODE,
+        TYPE_PARTS_CROSSCODE,
+    )
+
+    @property
+    def is_deleting(self):
+        note = (self.progress_note or '').lower()
+        return self.status == self.STATUS_PROCESSING and note.startswith('delet')
+
+    @property
+    def display_status(self):
+        if self.is_deleting:
+            return 'Deleting'
+        return self.get_status_display()
+
+    @property
+    def imported_records(self):
+        """Primary record count shown in the file import history table."""
+        if self.import_type in (self.TYPE_CARS, self.TYPE_CARS_CROSSCODE):
+            return self.cars_count
+        if self.import_type in (self.TYPE_GROUPS, self.TYPE_GROUPS_CROSSCODE):
+            return self.links_count or self.groups_count
+        if self.import_type in (self.TYPE_PARTS, self.TYPE_PARTS_CROSSCODE, self.TYPE_CAR_WITH_PARTS):
+            return self.parts_count
+        return self.total_rows
+
+    @property
+    def section_label(self):
+        """Human label for which Import section this file came from."""
+        return self.get_import_type_display()
+
     def history_stats(self):
         stats = []
         if self.total_rows:

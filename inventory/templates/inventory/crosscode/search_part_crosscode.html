@@ -9,9 +9,10 @@
     <div class="search-tools-grid">
         <section class="search-tools-block" id="part-search-panel">
             <h2 class="panel-title">Search by part number</h2>
+            <p class="panel-subtitle">Exact match by Code or Product No (e.g. PN0150W, 4605A049).</p>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
-                    <div class="search-bar search-autocomplete" style="flex: 1;" data-suggestions-url="{{ part_search_suggestions_url }}">
+                    <div class="search-bar search-autocomplete" data-suggestions-url="{{ part_search_suggestions_url }}">
                         <span class="search-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                         </span>
@@ -19,7 +20,7 @@
                             type="text"
                             name="q"
                             class="form-input"
-                            placeholder="Enter Code or Product No (e.g., PN0150W, 4605A049)..."
+                            placeholder="Enter Code or Product No..."
                             value="{{ query }}"
                             autocomplete="off"
                             autofocus
@@ -31,25 +32,27 @@
                         >
                         <div class="part-search-suggestions" id="part-search-suggestions" role="listbox" hidden></div>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-lg" id="search-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                        <span>Search</span>
-                    </button>
-                    {% if query or bulk_has_searched %}
-                    <a href="{% url 'inventory:search_part_crosscode' %}" class="btn btn-secondary btn-lg" id="clear-btn" title="Clear all results">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                        <span>Clear</span>
-                    </a>
-                    {% endif %}
+                    <div class="search-card-actions">
+                        <button type="submit" class="btn btn-primary btn-lg search-card-btn" id="search-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <span>Search</span>
+                        </button>
+                        {% if query or bulk_has_searched %}
+                        <a href="{% url 'inventory:search_part_crosscode' %}" class="btn btn-secondary btn-lg search-card-btn" id="clear-btn" title="Clear all results">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                            <span>Clear</span>
+                        </a>
+                        {% endif %}
+                    </div>
                 </form>
             </div>
         </section>
 
         <section class="search-tools-block" id="bulk-search-panel">
             <h2 class="panel-title">Bulk search</h2>
-            <p class="panel-subtitle">Exact part-number match only (Code or Product No). Rows containing <strong>*</strong> are missed automatically. Symbols and spaces are stripped. Upload columns <strong>Cross Brand</strong>, <strong>Cross Code</strong>, <strong>Part Number</strong> (.xlsx or .csv). Missed rows can be exported.</p>
+            <p class="panel-subtitle">Exact match only. Upload <strong>.xlsx</strong> or <strong>.csv</strong> with Cross Brand, Cross Code, Part Number. Sample: <a href="{% url 'inventory:bulk_search_sample_export_crosscode' %}" class="sample-file-link" id="bulk-sample-link" title="Download sample file">cross_code_bulk_search_file</a></p>
             <div class="card search-card">
-                <form method="post" action="{% url 'inventory:search_part_crosscode' %}" enctype="multipart/form-data" id="upload-form" class="bulk-search-form">
+                <form method="post" action="{% url 'inventory:search_part_crosscode' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
                     {% csrf_token %}
                     <div class="search-bar">
                         <span class="search-icon">
@@ -58,21 +61,16 @@
                         <input
                             type="file"
                             name="excel_file"
-                            class="form-input"
+                            class="form-input search-file-input"
                             accept=".xlsx,.xlsm,.xls,.csv"
                             required
                             id="excel-input"
-                            style="padding-top: 10px;"
                         >
                     </div>
-                    <div class="bulk-search-actions">
-                        <a href="{% url 'inventory:bulk_search_sample_export_crosscode' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn" title="Download a sample file">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            <span>Download sample file</span>
-                        </a>
-                        <button type="submit" class="btn btn-primary btn-lg" id="upload-btn">
+                    <div class="search-card-actions">
+                        <button type="submit" class="btn btn-primary btn-lg search-card-btn" id="upload-btn" title="Upload and save matches to basket">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            <span>Upload &amp; Save to basket</span>
+                            <span>Upload</span>
                         </button>
                     </div>
                 </form>
@@ -456,15 +454,19 @@
     .search-tools-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: var(--space-xl);
+        grid-template-rows: auto auto 1fr;
+        column-gap: var(--space-xl);
+        row-gap: var(--space-md);
         align-items: stretch;
         margin-bottom: var(--space-xl);
     }
 
     .search-tools-block {
         min-width: 0;
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-rows: subgrid;
+        grid-row: span 3;
+        gap: 0;
     }
 
     .search-results-panel {
@@ -473,10 +475,30 @@
     }
 
     .panel-title {
-        margin: 0 0 var(--space-md);
+        margin: 0;
         font-size: var(--font-md);
         font-weight: 600;
         color: var(--text-primary);
+        min-height: 1.5em;
+    }
+
+    .panel-subtitle {
+        margin: 0;
+        font-size: var(--font-sm);
+        line-height: 1.45;
+        color: var(--text-secondary);
+        min-height: 2.9em;
+    }
+
+    .sample-file-link {
+        color: var(--error);
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .sample-file-link:hover {
+        color: #e11d48;
     }
 
     .search-autocomplete {
@@ -515,35 +537,54 @@
     }
 
     .search-card {
-        flex: 1;
         display: flex;
         flex-direction: column;
         justify-content: center;
         margin-bottom: 0;
-        min-height: 148px;
+        height: 120px;
+        min-height: 120px;
         overflow: visible;
+        box-sizing: border-box;
     }
 
-    .search-card .search-form-row,
-    .search-card .bulk-search-form {
+    .search-card .search-form-row {
         width: 100%;
-    }
-
-    .bulk-search-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-md);
-    }
-
-    .bulk-search-actions {
         display: flex;
         align-items: center;
         gap: var(--space-md);
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
     }
 
-    .bulk-search-actions .btn {
-        flex: 1 1 180px;
+    .search-card .search-bar {
+        flex: 1 1 auto;
+        max-width: none;
+        min-width: 0;
+    }
+
+    .search-card .form-input {
+        height: 48px;
+        box-sizing: border-box;
+    }
+
+    .search-card .search-file-input {
+        padding-top: 0.7rem;
+        padding-bottom: 0.55rem;
+        line-height: 1.2;
+    }
+
+    .search-card-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex: 0 0 auto;
+    }
+
+    .search-card .search-card-btn {
+        width: 132px;
+        min-width: 132px;
+        height: 48px;
+        padding: 0 var(--space-md);
+        box-sizing: border-box;
         justify-content: center;
     }
 
@@ -766,10 +807,36 @@
     @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
     @media (max-width: 1100px) {
-        .search-tools-grid { grid-template-columns: 1fr; }
+        .search-tools-grid {
+            grid-template-columns: 1fr;
+            grid-template-rows: none;
+        }
+
+        .search-tools-block {
+            display: flex;
+            flex-direction: column;
+            grid-row: auto;
+            gap: var(--space-md);
+        }
+
+        .panel-subtitle { min-height: 0; }
     }
 
     @media (max-width: 768px) {
+        .search-card {
+            height: auto;
+            min-height: 120px;
+        }
+
+        .search-card .search-form-row {
+            flex-wrap: wrap;
+        }
+
+        .search-card-actions,
+        .search-card .search-card-btn {
+            width: 100%;
+        }
+
         .search-form-row,
         .basket-assign-fields { flex-direction: column; align-items: stretch; }
         .search-form-row .search-bar,

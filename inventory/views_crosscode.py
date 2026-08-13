@@ -149,7 +149,7 @@ def bulk_search_sample_export_crosscode_view(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = 'attachment; filename="bulk_search_sample_crosscode.xlsx"'
+    response['Content-Disposition'] = 'attachment; filename="cross_code_bulk_search_file.xlsx"'
     workbook.save(response)
     return response
 
