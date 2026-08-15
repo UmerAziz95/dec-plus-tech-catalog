@@ -14,7 +14,7 @@
                 <span class="search-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
-                <input type="text" name="q" id="basket-search-input" class="form-input" placeholder="Search brand name, brand number, product brand, product no, brand, or code..." value="{{ query }}" autocomplete="off">
+                <input type="text" name="q" id="basket-search-input" class="form-input" placeholder="Search brand name or brand number..." value="{{ query }}" autocomplete="off">
             </div>
             <button type="submit" class="btn btn-primary btn-lg">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -30,12 +30,14 @@
     <div class="results-summary" style="margin-bottom: var(--space-md); padding: 0 var(--space-xs);">
         <div class="results-info">
             {% if searched %}
-            <span class="results-count">{{ filtered_count }}</span> match{{ filtered_count|pluralize }} found
+            <span class="results-count">{{ filtered_count }}</span> group{{ filtered_count|pluralize }} found
             <span class="results-divider">|</span>
-            <span>{{ total_basket_count }} total in basket</span>
+            <span>{{ total_basket_count }} total group{{ total_basket_count|pluralize }}</span>
             {% else %}
-            <span class="results-count">{{ total_basket_count }}</span> item{{ total_basket_count|pluralize }} in your basket
+            <span class="results-count">{{ total_basket_count }}</span> unique Brand Name + Brand Number group{{ total_basket_count|pluralize }}
             {% endif %}
+            <span class="results-divider">|</span>
+            <span>{{ total_item_count }} unique Brand + Code line{{ total_item_count|pluralize }}</span>
         </div>
         <div class="results-page-info">
             Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
@@ -56,7 +58,7 @@
         </form>
     </div>
 
-    <!-- Basket Items Table -->
+    <!-- One row per unique Brand Name + Brand Number (like the Excel sample groups) -->
     <div class="card" style="padding: 0; overflow: hidden;">
         <div class="table-wrapper">
             <table class="data-table" id="basket-table">
@@ -65,64 +67,33 @@
                         <th>#</th>
                         <th>Brand Name</th>
                         <th>Brand Number</th>
-                        <th>Product Brand</th>
-                        <th>Product No</th>
-                        <th>Brand</th>
-                        <th>Code</th>
-                        <th>Added</th>
+                        <th>Unique items</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in page_obj %}
-                    <tr class="basket-row" id="basket-row-{{ item.id }}">
+                    {% for group in page_obj %}
+                    <tr class="basket-row" id="basket-group-{{ group.id }}">
                         <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
                         <td>
-                            <span class="brand-name">{{ item.brand }}</span>
+                            <span class="brand-name">{{ group.brand }}</span>
                         </td>
                         <td>
-                            <span class="brand-number-text">{{ item.brand_number|default:"—" }}</span>
+                            <span class="brand-number-text">{{ group.brand_number|default:"—" }}</span>
                         </td>
                         <td>
-                            <span class="brand-name">{{ item.part.brand|default:"—" }}</span>
-                        </td>
-                        <td>
-                            <span class="group-id-text">{{ item.part.product_no|default:"—" }}</span>
-                        </td>
-                        <td>
-                            <span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span>
-                        </td>
-                        <td>
-                            <span class="part-tag">{{ item.part.part_number }}</span>
-                        </td>
-                        <td>
-                            <span class="date-text">{{ item.created_at|date:"M d, Y" }}</span>
+                            <span class="part-tag">{{ group.item_count }}</span>
                         </td>
                         <td class="actions-cell">
-                            <button
-                                type="button"
-                                class="btn btn-sm btn-edit"
-                                onclick="openEditModal({{ item.id }}, '{{ item.brand|escapejs }}', '{{ item.brand_number|escapejs }}', '{{ item.part.part_number|escapejs }}', '{{ item.part.product_no|escapejs }}')"
-                                title="Edit"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
                             <a
-                                href="{% url 'inventory:basket_group_detail_crosscode' item.basket_id %}"
+                                href="{% url 'inventory:basket_group_detail_crosscode' group.id %}"
                                 class="btn btn-sm btn-view-group"
-                                title="View basket group"
+                                title="View unique Brand + Code rows"
                                 aria-label="View basket group"
                             >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                                Open
                             </a>
-                            <form method="post" action="{% url 'inventory:remove_from_basket_crosscode' item.id %}" class="inline-form" data-confirm="Remove this item from basket?" data-confirm-title="Remove item" data-confirm-ok="Remove" data-confirm-cancel="Cancel" data-confirm-tone="danger">
-                                {% csrf_token %}
-                                <input type="hidden" name="page" value="{{ page_obj.number }}">
-                                {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
-                                <button type="submit" class="btn btn-sm btn-delete" title="Remove">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                </button>
-                            </form>
                         </td>
                     </tr>
                     {% endfor %}

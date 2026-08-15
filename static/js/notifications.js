@@ -20,14 +20,14 @@
         let stack = document.getElementById('app-toast-stack');
         if (stack) return stack;
 
-        const topbarRight = document.querySelector('.topbar-right');
-        if (topbarRight) {
+        const topbar = document.getElementById('topbar') || document.querySelector('.topbar');
+        if (topbar && topbar.parentNode) {
             stack = document.createElement('div');
             stack.id = 'app-toast-stack';
-            stack.className = 'topbar-messages';
+            stack.className = 'app-toast-stack';
             stack.setAttribute('aria-live', 'polite');
             stack.setAttribute('aria-atomic', 'false');
-            topbarRight.prepend(stack);
+            topbar.insertAdjacentElement('afterend', stack);
             return stack;
         }
 

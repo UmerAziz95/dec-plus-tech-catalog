@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.utils import timezone
 
 from inventory.models import (
@@ -401,6 +401,7 @@ class ExcelImportService:
         }
 
     def _upsert_crosscode_parts_batched(self, rows, batch, bs):
+        """Create new Cross Code rows, or update matching ones (no skip-on-duplicate)."""
         total = len(rows)
         saved = 0
         for start in range(0, total, bs):
@@ -416,10 +417,16 @@ class ExcelImportService:
                 )
             }
             to_create = []
+            to_update = []
             for row in chunk:
                 key = (row['brand'], row['product_no'], row['oe_brand'], row['part_number'])
-                if key in existing:
+                existing_item = existing.get(key)
+                if existing_item is not None:
+                    existing_item.group_id = row['group_id']
+                    existing_item.import_batch = batch
+                    to_update.append(existing_item)
                     continue
+                # Reserve the key so the same chunk cannot create duplicates.
                 existing[key] = None
                 to_create.append(PartCrossCode(
                     group_id=row['group_id'],
@@ -429,6 +436,13 @@ class ExcelImportService:
                     part_number=row['part_number'],
                     import_batch=batch,
                 ))
+            if to_update:
+                PartCrossCode.objects.bulk_update(
+                    to_update,
+                    ['group_id', 'import_batch'],
+                    batch_size=bs,
+                )
+                saved += len(to_update)
             if to_create:
                 with transaction.atomic():
                     PartCrossCode.objects.bulk_create(to_create, batch_size=bs)
@@ -451,7 +465,7 @@ class ExcelImportService:
         if not parsed['rows']:
             self._add_error(
                 sheet_name, 0,
-                'No valid rows found. Expected column A = car name, column B = part number.',
+                'No valid rows found. Expected column A = brand name, column B = part number, column C = model.',
             )
             self._finalize_failed(batch)
             return
@@ -476,27 +490,65 @@ class ExcelImportService:
         )
 
     def _parse_car_with_parts_sheet(self, sheet, sheet_name):
+        """
+        Column A = brand name, column B = part number, column C = model.
+        Header names are preferred; otherwise A/B/C are used in that order.
+        """
+        indices = {'brand': 0, 'part_number': 1, 'model': 2}
+        first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        start_row = 2
+        if first_row:
+            headers = [str(cell or '').strip().lower() for cell in first_row]
+            aliases = {
+                'brand': ['brand', 'brand name', 'brandname', 'brand_name'],
+                'part_number': ['part number', 'part_number', 'partnumber', 'part'],
+                'model': ['model', 'car model', 'car_model', 'car name', 'carname', 'car'],
+            }
+            matched = {}
+            for field, names in aliases.items():
+                for idx, header in enumerate(headers):
+                    if header in names:
+                        matched[field] = idx
+                        break
+            if len(matched) >= 2:
+                indices.update(matched)
+            elif not any(h in aliases['brand'] + aliases['part_number'] + aliases['model'] for h in headers):
+                # No recognizable headers: treat first row as data.
+                start_row = 1
+
         rows = []
         seen_pairs = set()
         car_names = set()
         total_rows = 0
-        for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            car_name = self._sanitize_text(row[0] if len(row) > 0 else '')
-            part_number = self._sanitize_text(row[1] if len(row) > 1 else '')
-            if not car_name and not part_number:
+        for row_number, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
+            brand = self._sanitize_text(row[indices['brand']] if len(row) > indices['brand'] else '')
+            part_number = self._sanitize_text(
+                row[indices['part_number']] if len(row) > indices['part_number'] else ''
+            )
+            model = self._sanitize_text(row[indices['model']] if len(row) > indices['model'] else '')
+
+            if not any([brand, part_number, model]):
                 continue
-            if not car_name or not part_number:
-                self._add_error(sheet_name, row_number, 'Both car name and part number are required.')
+            if not part_number or not model:
+                self._add_error(
+                    sheet_name, row_number,
+                    'Part number and model are required (column B and column C).',
+                )
                 continue
-            if car_name is None or part_number is None:
+            if None in (brand, part_number, model):
                 self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
                 continue
-            key = (car_name, part_number)
+
+            key = (model, part_number)
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            rows.append(key)
-            car_names.add(car_name)
+            rows.append({
+                'model': model,
+                'brand': brand or '',
+                'part_number': part_number,
+            })
+            car_names.add(model)
             total_rows += 1
 
         return {'rows': rows, 'car_names': car_names, 'total_rows': total_rows}
@@ -534,28 +586,47 @@ class ExcelImportService:
 
     def _upsert_car_with_parts_parts(self, rows, group_by_car_name, batch, bs):
         resolved = [
-            (group_by_car_name[car_name], part_number)
-            for car_name, part_number in rows
-            if car_name in group_by_car_name
+            (group_by_car_name[row['model']], row['brand'], row['part_number'])
+            for row in rows
+            if row['model'] in group_by_car_name
         ]
         total = len(resolved)
         created_count = 0
         for start in range(0, total, bs):
             chunk = resolved[start:start + bs]
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
-            group_ids = {group_id for group_id, _ in chunk}
-            part_nums = {part_number for _, part_number in chunk}
+            group_ids = {group_id for group_id, _, _ in chunk}
+            part_nums = {part_number for _, _, part_number in chunk}
             self._remove_duplicate_parts(Part, group_ids, part_nums)
-            existing = set(
-                Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
-            )
+            existing = {
+                (item.group_id, item.part_number): item
+                for item in Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums)
+            }
             to_create = []
-            for group_id, part_number in chunk:
+            to_update = []
+            for group_id, brand, part_number in chunk:
                 key = (group_id, part_number)
-                if key in existing:
+                existing_item = existing.get(key)
+                if existing_item is not None:
+                    changed = False
+                    if brand and existing_item.brand != brand:
+                        existing_item.brand = brand
+                        changed = True
+                    if existing_item.import_batch_id is None:
+                        existing_item.import_batch = batch
+                        changed = True
+                    if changed:
+                        to_update.append(existing_item)
                     continue
-                existing.add(key)
-                to_create.append(Part(group_id=group_id, brand='', part_number=part_number, import_batch=batch))
+                existing[key] = None
+                to_create.append(Part(
+                    group_id=group_id,
+                    brand=brand or '',
+                    part_number=part_number,
+                    import_batch=batch,
+                ))
+            if to_update:
+                Part.objects.bulk_update(to_update, ['brand', 'import_batch'], batch_size=bs)
             if to_create:
                 with transaction.atomic():
                     Part.objects.bulk_create(to_create, batch_size=bs)
@@ -788,6 +859,7 @@ class ExcelImportService:
     def _upsert_parts_batched(self, parts, batch, bs, model=Part):
         parts_list = list(parts)
         total = len(parts_list)
+        saved = 0
         for start in range(0, total, bs):
             chunk = parts_list[start:start + bs]
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
@@ -808,20 +880,35 @@ class ExcelImportService:
 
             self._remove_duplicate_parts(model, group_ids, part_nums)
 
-            existing = set(
-                model.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
-            )
+            existing_map = {
+                (item.group_id, item.part_number): item
+                for item in model.objects.filter(group_id__in=group_ids, part_number__in=part_nums)
+            }
             to_create = []
+            to_claim = []
             for group_id, brand, part_number in resolved:
                 key = (group_id, part_number)
-                if key in existing:
+                existing_item = existing_map.get(key)
+                if existing_item is not None:
+                    if existing_item.import_batch_id is None:
+                        existing_item.import_batch = batch
+                        to_claim.append(existing_item)
                     continue
-                existing.add(key)
-                to_create.append(model(group_id=group_id, brand=brand, part_number=part_number, import_batch=batch))
+                existing_map[key] = None
+                to_create.append(model(
+                    group_id=group_id,
+                    brand=brand,
+                    part_number=part_number,
+                    import_batch=batch,
+                ))
+            if to_claim:
+                model.objects.bulk_update(to_claim, ['import_batch'], batch_size=bs)
+                saved += len(to_claim)
             if to_create:
                 with transaction.atomic():
                     model.objects.bulk_create(to_create, batch_size=bs)
-        return total
+                saved += len(to_create)
+        return saved
 
     def _add_error(self, sheet_name, row_number, message):
         if len(self.errors) >= MAX_IMPORT_ERRORS:
@@ -944,6 +1031,204 @@ class ExcelImportService:
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Car with parts'
-        sheet.append(['Car Name', 'Part Number'])
-        sheet.append(['SAMPLE CAR MODEL NAME 2020-2024', 'SAMPLE-PART-001'])
+        sheet.append(['Brand Name', 'Part Number', 'Model'])
+        sheet.append(['TOYOTA', 'SAMPLE-PART-001', 'TOYOTA COROLLA AE101 1991-2000'])
+        sheet.append(['TOYOTA', 'SAMPLE-PART-002', 'TOYOTA COROLLA AE101 1991-2000'])
+        sheet.append(['HONDA', 'SAMPLE-PART-003', 'HONDA CIVIC EG 1991-1995'])
         return workbook
+
+
+class ImportBatchDeleteService:
+    """
+    Undo an import without loading millions of rows into memory.
+
+    Large single DELETE / IN (SELECT …) statements can hit PostgreSQL's
+    ~1GB allocation limit (invalid memory alloc request size 1073741824).
+    Deletes run in small committed chunks, preferably on a background thread.
+    """
+    CHUNK_SIZE = 20_000
+
+    @classmethod
+    def enqueue(cls, batch_id):
+        batch = ImportBatch.objects.get(pk=batch_id)
+        if batch.status in (ImportBatch.STATUS_PENDING, ImportBatch.STATUS_PROCESSING):
+            raise ValueError('Import is still running or already being deleted.')
+
+        ImportBatch.objects.filter(pk=batch_id).update(
+            status=ImportBatch.STATUS_PROCESSING,
+            progress_note='Deleting imported rows…',
+            failure_reason='',
+            updated_at=timezone.now(),
+        )
+
+        def worker():
+            close_old_connections()
+            try:
+                cls.execute(batch_id)
+            except Exception as exc:
+                ImportBatch.objects.filter(pk=batch_id).update(
+                    status=ImportBatch.STATUS_FAILED,
+                    failure_reason=f'Delete failed: {exc}',
+                    progress_note='Delete failed',
+                    updated_at=timezone.now(),
+                )
+            finally:
+                close_old_connections()
+
+        threading.Thread(target=worker, name=f'import-delete-{batch_id}', daemon=True).start()
+
+    @classmethod
+    def execute(cls, batch_id):
+        batch = ImportBatch.objects.get(pk=batch_id)
+        counts = {
+            'cars': 0,
+            'groups': 0,
+            'parts': 0,
+            'basket_items': 0,
+        }
+
+        # Basket lines first (FK to parts), then catalog rows.
+        counts['basket_items'] += cls._chunked_delete_join(
+            child_table='basket_items',
+            parent_table='parts',
+            child_fk='part_id',
+            batch_id=batch_id,
+            progress='Deleting basket items…',
+        )
+        counts['parts'] += cls._chunked_delete_by_batch(
+            'parts', batch_id, progress='Deleting parts…',
+        )
+
+        counts['basket_items'] += cls._chunked_delete_join(
+            child_table='basket_items_crosscode',
+            parent_table='parts_crosscode',
+            child_fk='part_id',
+            batch_id=batch_id,
+            progress='Deleting Cross Code basket items…',
+        )
+        counts['parts'] += cls._chunked_delete_by_batch(
+            'parts_crosscode', batch_id, progress='Deleting Cross Code parts…',
+        )
+
+        # Groups that belong to this batch, then groups orphaned by deleted cars.
+        counts['groups'] += cls._chunked_delete_by_batch(
+            'car_groups', batch_id, progress='Deleting group links…',
+        )
+        counts['groups'] += cls._chunked_delete_join(
+            child_table='car_groups',
+            parent_table='cars',
+            child_fk='car_id',
+            batch_id=batch_id,
+            progress='Deleting orphan group links…',
+            cast_parent_id_to_text=True,
+        )
+        counts['cars'] += cls._chunked_delete_by_batch(
+            'cars', batch_id, progress='Deleting cars…',
+        )
+
+        counts['groups'] += cls._chunked_delete_by_batch(
+            'car_groups_crosscode', batch_id, progress='Deleting Cross Code group links…',
+        )
+        counts['groups'] += cls._chunked_delete_join(
+            child_table='car_groups_crosscode',
+            parent_table='cars_crosscode',
+            child_fk='car_id',
+            batch_id=batch_id,
+            progress='Deleting orphan Cross Code group links…',
+            cast_parent_id_to_text=True,
+        )
+        counts['cars'] += cls._chunked_delete_by_batch(
+            'cars_crosscode', batch_id, progress='Deleting Cross Code cars…',
+        )
+
+        ImportRowError.objects.filter(batch_id=batch_id).delete()
+
+        stored = batch.stored_file_path
+        ImportBatch.objects.filter(pk=batch_id).delete()
+
+        if stored:
+            try:
+                Path(stored).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        return counts
+
+    @classmethod
+    def _update_progress(cls, batch_id, note):
+        ImportBatch.objects.filter(pk=batch_id).update(
+            progress_note=note,
+            updated_at=timezone.now(),
+        )
+
+    @classmethod
+    def _chunked_delete_by_batch(cls, table, batch_id, progress=''):
+        """DELETE FROM table WHERE import_batch_id = %s in small chunks."""
+        if progress:
+            cls._update_progress(batch_id, progress)
+        total = 0
+        sql = (
+            f'DELETE FROM {table} '
+            f'WHERE ctid IN ('
+            f'  SELECT ctid FROM {table} '
+            f'  WHERE import_batch_id = %s '
+            f'  LIMIT %s'
+            f')'
+        )
+        while True:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, [batch_id, cls.CHUNK_SIZE])
+                    deleted = cursor.rowcount
+            if deleted <= 0:
+                break
+            total += deleted
+            if progress:
+                cls._update_progress(
+                    batch_id,
+                    f'{progress} ({total:,} removed)',
+                )
+        return total
+
+    @classmethod
+    def _chunked_delete_join(
+        cls,
+        child_table,
+        parent_table,
+        child_fk,
+        batch_id,
+        progress='',
+        cast_parent_id_to_text=False,
+    ):
+        """
+        Delete child rows that reference parent rows stamped with this batch.
+        Used for basket items and orphan car_groups.
+        """
+        if progress:
+            cls._update_progress(batch_id, progress)
+        parent_id_expr = 'p.id::text' if cast_parent_id_to_text else 'p.id'
+        total = 0
+        sql = (
+            f'DELETE FROM {child_table} c '
+            f'WHERE c.ctid IN ('
+            f'  SELECT c2.ctid '
+            f'  FROM {child_table} c2 '
+            f'  INNER JOIN {parent_table} p ON c2.{child_fk} = {parent_id_expr} '
+            f'  WHERE p.import_batch_id = %s '
+            f'  LIMIT %s'
+            f')'
+        )
+        while True:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, [batch_id, cls.CHUNK_SIZE])
+                    deleted = cursor.rowcount
+            if deleted <= 0:
+                break
+            total += deleted
+            if progress:
+                cls._update_progress(
+                    batch_id,
+                    f'{progress} ({total:,} removed)',
+                )
+        return total
