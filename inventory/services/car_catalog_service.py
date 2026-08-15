@@ -8,6 +8,17 @@ from inventory.models import Car
 
 _BRAND_NAME_SQL = "NULLIF(TRIM(split_part(NULLIF(TRIM(car_model), ''), ' ', 1)), '')"
 _TAG_RE = re.compile(r'<[^>]+>')
+_TOKEN_RE = re.compile(r'[^\s]+')
+
+_SEARCH_FIELDS = (
+    'car_id',
+    'car_model',
+    'engine',
+    'transmission',
+    'steering',
+    'wd',
+    'car_parameters',
+)
 
 
 class CarCatalogService:
@@ -26,6 +37,33 @@ class CarCatalogService:
     def clean_text(value, max_length):
         cleaned = _TAG_RE.sub('', (value or '').strip())
         return cleaned[:max_length]
+
+    @classmethod
+    def tokenize_query(cls, query):
+        """Split a search string into whitespace tokens (same rules as manual car-model search)."""
+        query = cls.clean_text(query, 255)
+        if not query:
+            return []
+        return _TOKEN_RE.findall(query)
+
+    @classmethod
+    def apply_keyword_tokens(cls, queryset, query, fields=_SEARCH_FIELDS):
+        """
+        Require every token to appear somewhere in the given fields.
+
+        Tokens are AND-ed and order-independent, so "TOYOTA UZZ" matches
+        rows that contain both keywords even when other words sit between them.
+        """
+        tokens = cls.tokenize_query(query)
+        if not tokens:
+            return queryset
+
+        for token in tokens:
+            token_q = Q()
+            for field in fields:
+                token_q |= Q(**{f'{field}__icontains': token})
+            queryset = queryset.filter(token_q)
+        return queryset
 
     @classmethod
     def get_brands(cls):
@@ -68,19 +106,11 @@ class CarCatalogService:
 
         query = filters.get('q', '')
         if query:
-            queryset = queryset.filter(
-                Q(car_id__icontains=query)
-                | Q(car_model__icontains=query)
-                | Q(engine__icontains=query)
-                | Q(transmission__icontains=query)
-                | Q(steering__icontains=query)
-                | Q(wd__icontains=query)
-                | Q(car_parameters__icontains=query)
-            )
+            queryset = cls.apply_keyword_tokens(queryset, query, fields=_SEARCH_FIELDS)
 
         model = filters.get('model', '')
         if model:
-            queryset = queryset.filter(car_model__icontains=model)
+            queryset = cls.apply_keyword_tokens(queryset, model, fields=('car_model',))
 
         engine = filters.get('engine', '')
         if engine:
@@ -106,13 +136,29 @@ class CarCatalogService:
 
     @classmethod
     def get_suggestions(cls, filters, query, limit=15):
-        if len(query) < 2:
+        """
+        Autocomplete suggestions using the same non-contiguous keyword rules
+        as Import Data → Add a part manually car-model search.
+        """
+        query = cls.clean_text(query, 255)
+        if len(query) < 1:
             return []
 
-        queryset = cls.build_queryset(filters).filter(
-            Q(car_model__icontains=query) | Q(car_id__icontains=query)
+        # Apply brand/other filters, but not the live typing query twice.
+        base_filters = dict(filters or {})
+        base_filters['q'] = ''
+        queryset = cls.build_queryset(base_filters)
+        queryset = cls.apply_keyword_tokens(
+            queryset,
+            query,
+            fields=('car_model', 'car_id'),
         )
-        return list(queryset.values_list('car_model', flat=True).distinct()[:limit])
+        return list(
+            queryset.exclude(car_model='')
+            .values_list('car_model', flat=True)
+            .distinct()
+            .order_by('car_model')[:limit]
+        )
 
     @staticmethod
     def build_export_workbook(cars):

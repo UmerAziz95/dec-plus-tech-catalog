@@ -2,7 +2,9 @@ import re
 
 from inventory.models import Car, CarCrossCode, CarGroup, CarGroupCrossCode, Part, PartCrossCode
 
+
 _TAG_RE = re.compile(r'<[^>]+>')
+_TOKEN_RE = re.compile(r'[^\s]+')
 
 
 class ManualEntryService:
@@ -25,14 +27,27 @@ class ManualEntryService:
 
     @classmethod
     def suggest_car_models(cls, query, limit=50):
+        """
+        Suggest car models by keyword match.
+
+        Each whitespace-separated token must appear somewhere in the car
+        model (order-independent), so "TOYOTA UZZ" matches
+        "TOYOTA … MAZDA … UZZ …" even when words in between are skipped.
+        """
         query = cls.clean_text(query, 255)
         if len(query) < 1:
             return []
+
+        tokens = _TOKEN_RE.findall(query)
+        if not tokens:
+            return []
+
+        qs = cls.car_model_cls.objects.exclude(car_model='')
+        for token in tokens:
+            qs = qs.filter(car_model__icontains=token)
+
         return list(
-            cls.car_model_cls.objects
-            .filter(car_model__icontains=query)
-            .exclude(car_model='')
-            .values_list('car_model', flat=True)
+            qs.values_list('car_model', flat=True)
             .distinct()
             .order_by('car_model')[:limit]
         )

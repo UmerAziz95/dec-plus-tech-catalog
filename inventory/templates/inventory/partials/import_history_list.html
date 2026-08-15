@@ -1,4 +1,4 @@
-<aside class="import-history-panel" data-import-history-panel="{{ import_history_type }}" data-import-history-poll="{% if history %}{% if history.0.status == 'pending' or history.0.status == 'processing' %}1{% else %}0{% endif %}{% else %}0{% endif %}">
+<aside class="import-history-panel" data-import-history-panel="{{ import_history_type }}" data-import-history-poll="{% if history %}{% for b in history %}{% if b.status == 'pending' or b.status == 'processing' %}1{% endif %}{% endfor %}{% else %}0{% endif %}">
     <h4 class="import-history-title">Import history</h4>
     <div data-import-history-body>
         {% include "inventory/partials/import_history_items.html" %}

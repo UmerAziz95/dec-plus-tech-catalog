@@ -1,0 +1,81 @@
+{% if file_import_history %}
+<table class="data-table" id="file-import-history-table">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>File name</th>
+            <th>Imported from</th>
+            <th>Imported records</th>
+            <th>Total records</th>
+            <th>Status</th>
+            <th>Imported at</th>
+            <th>Updated at</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for batch in file_import_history %}
+        <tr class="file-history-row" data-batch-id="{{ batch.id }}" data-batch-status="{{ batch.status }}"{% if batch.is_deleting %} data-deleting="1"{% endif %}>
+            <td class="row-number">{{ forloop.counter }}</td>
+            <td>
+                <span class="file-history-name" title="{{ batch.original_file_name }}">{{ batch.original_file_name }}</span>
+                {% if batch.status == 'processing' and batch.progress_note %}
+                <div class="file-history-progress" aria-live="polite">{{ batch.progress_note }}</div>
+                {% endif %}
+                {% if batch.status == 'failed' and batch.failure_reason %}
+                <div class="file-history-error">{{ batch.failure_reason|truncatechars:140 }}</div>
+                {% endif %}
+            </td>
+            <td><span class="file-history-section">{{ batch.section_label }}</span></td>
+            <td><span class="file-history-count">{{ batch.imported_records|default:0 }}</span></td>
+            <td><span class="file-history-count">{{ batch.total_rows|default:0 }}</span></td>
+            <td>
+                {% if batch.is_deleting %}
+                <span class="badge badge-amber">Deleting</span>
+                {% elif batch.status == 'completed' %}
+                <span class="badge badge-green">{{ batch.display_status }}</span>
+                {% elif batch.status == 'failed' %}
+                <span class="badge import-history-badge-failed">{{ batch.display_status }}</span>
+                {% elif batch.status == 'processing' or batch.status == 'pending' %}
+                <span class="badge badge-amber">{{ batch.display_status }}</span>
+                {% else %}
+                <span class="badge">{{ batch.display_status }}</span>
+                {% endif %}
+            </td>
+            <td>
+                <span class="date-text">{{ batch.created_at|date:"M j, Y" }}</span>
+                <div class="file-history-time">{{ batch.created_at|time:"g:i A" }}</div>
+            </td>
+            <td>
+                <span class="date-text">{{ batch.updated_at|date:"M j, Y" }}</span>
+                <div class="file-history-time">{{ batch.updated_at|time:"g:i A" }}</div>
+            </td>
+            <td class="actions-cell">
+                {% if batch.status == 'completed' or batch.status == 'failed' %}
+                <form
+                    method="post"
+                    action="{% url 'inventory:import_batch_delete' batch.id %}"
+                    class="inline-form"
+                    data-confirm="Delete import &quot;{{ batch.original_file_name|escapejs }}&quot;? This permanently removes the imported data from the database. Large files delete in the background."
+                    data-confirm-title="Delete imported file"
+                    data-confirm-ok="Delete"
+                    data-confirm-cancel="Cancel"
+                    data-confirm-tone="danger"
+                >
+                    {% csrf_token %}
+                    <input type="hidden" name="catalog" value="{{ import_catalog }}">
+                    <button type="submit" class="btn btn-danger btn-sm" title="Delete imported data">Delete</button>
+                </form>
+                {% elif batch.is_deleting %}
+                <span class="file-history-deleting-label">In progress…</span>
+                {% else %}
+                <span class="file-history-deleting-label">—</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="file-import-history-empty">No imported files yet in this section.</p>
+{% endif %}

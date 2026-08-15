@@ -9,9 +9,10 @@
     <div class="search-tools-grid">
         <section class="search-tools-block" id="part-search-panel">
             <h2 class="panel-title">Search by part number</h2>
+            <p class="panel-subtitle">Exact match by part number (e.g. MQ900871).</p>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
-                    <div class="search-bar search-autocomplete" style="flex: 1;" data-suggestions-url="{{ part_search_suggestions_url }}">
+                    <div class="search-bar search-autocomplete" data-suggestions-url="{{ part_search_suggestions_url }}">
                         <span class="search-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                         </span>
@@ -19,7 +20,7 @@
                             type="text"
                             name="q"
                             class="form-input"
-                            placeholder="Enter part number (e.g., MQ900871)..."
+                            placeholder="Enter part number..."
                             value="{{ query }}"
                             autocomplete="off"
                             autofocus
@@ -31,25 +32,27 @@
                         >
                         <div class="part-search-suggestions" id="part-search-suggestions" role="listbox" hidden></div>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-lg" id="search-btn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                        <span>Search</span>
-                    </button>
-                    {% if query or bulk_has_searched %}
-                    <a href="{% url 'inventory:search_part' %}" class="btn btn-secondary btn-lg" id="clear-btn" title="Clear all results">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                        <span>Clear</span>
-                    </a>
-                    {% endif %}
+                    <div class="search-card-actions">
+                        <button type="submit" class="btn btn-primary btn-lg search-card-btn" id="search-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <span>Search</span>
+                        </button>
+                        {% if query or bulk_has_searched %}
+                        <a href="{% url 'inventory:search_part' %}" class="btn btn-secondary btn-lg search-card-btn" id="clear-btn" title="Clear all results">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                            <span>Clear</span>
+                        </a>
+                        {% endif %}
+                    </div>
                 </form>
             </div>
         </section>
 
         <section class="search-tools-block" id="bulk-search-panel">
             <h2 class="panel-title">Bulk search</h2>
-            <p class="panel-subtitle">Exact part-number match only. Partial numbers (for example <code>54500-8H31</code>) will not match longer variants like <code>54500-8H31A</code>. Upload <strong>.xlsx</strong> or <strong>.csv</strong>.</p>
+            <p class="panel-subtitle">Exact match only. Upload <strong>.xlsx</strong> or <strong>.csv</strong> with <strong>Brand Name</strong>, <strong>Brand Number</strong>, <strong>Part Number</strong>. Sample: <a href="{% url 'inventory:bulk_search_sample_export' %}" class="sample-file-link" id="bulk-sample-link" title="Download sample file">cross_cars_bulk_search_file</a></p>
             <div class="card search-card">
-                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="bulk-search-form">
+                <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
                     {% csrf_token %}
                     <div class="search-bar">
                         <span class="search-icon">
@@ -58,21 +61,16 @@
                         <input
                             type="file"
                             name="excel_file"
-                            class="form-input"
+                            class="form-input search-file-input"
                             accept=".xlsx,.xlsm,.xls,.csv"
                             required
                             id="excel-input"
-                            style="padding-top: 10px;"
                         >
                     </div>
-                    <div class="bulk-search-actions">
-                        <a href="{% url 'inventory:bulk_search_sample_export' %}" class="btn btn-secondary btn-lg" id="bulk-sample-btn" title="Download a sample file">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            <span>Download sample file</span>
-                        </a>
-                        <button type="submit" class="btn btn-primary btn-lg" id="upload-btn">
+                    <div class="search-card-actions">
+                        <button type="submit" class="btn btn-primary btn-lg search-card-btn" id="upload-btn" title="Upload and save matches to basket">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            <span>Upload &amp; Save to basket</span>
+                            <span>Upload</span>
                         </button>
                     </div>
                 </form>
@@ -105,8 +103,8 @@
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Cross Brand</th>
-                                <th>Cross Code</th>
+                                <th>Brand Name</th>
+                                <th>Brand Number</th>
                                 <th>Part Number</th>
                                 <th>Match Status</th>
                                 <th>Vehicles Matched</th>
@@ -270,11 +268,31 @@
                                 </td>
                                 <td class="parts-cell">
                                     {% for part in item.parts %}
-                                    <span class="part-tag">{{ part.part_number }}</span>
+                                    <span class="part-tag-group">
+                                        <span class="part-tag">{{ part.part_number }}</span>
+                                        <button
+                                            type="button"
+                                            class="part-tag-action part-tag-edit"
+                                            title="Edit part"
+                                            data-part-id="{{ part.id }}"
+                                            data-part-number="{{ part.part_number|escapejs }}"
+                                            data-part-brand="{{ part.brand|escapejs }}"
+                                            data-update-url="{% url 'inventory:part_update' part.id %}"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        </button>
+                                        <form method="post" action="{% url 'inventory:part_delete' part.id %}" class="part-tag-delete-form inline-form" data-confirm="Delete part {{ part.part_number }}? This removes it everywhere, not just for this vehicle." data-confirm-title="Delete part" data-confirm-ok="Delete" data-confirm-cancel="Cancel" data-confirm-tone="danger">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="next" value="?q={{ query|urlencode }}&page={{ page_obj.number }}#search-results-panel">
+                                            <button type="submit" class="part-tag-action part-tag-delete" title="Delete part">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                            </button>
+                                        </form>
+                                    </span>
                                     {% endfor %}
                                 </td>
                                 <td>
-                                    <span class="source-badge {% if item.source == 'parts-cat.com' %}source-parts-cat{% else %}source-other-db{% endif %}">{{ item.source }}</span>
+                                    <span class="source-badge {% if item.source == 'Manual entry' %}source-manual{% elif item.source == 'Car with parts' %}source-car-with-parts{% else %}source-catalog{% endif %}">{{ item.source }}</span>
                                 </td>
                                 <td class="actions-cell">
                                     <button
@@ -291,8 +309,8 @@
                                         data-car-parameters="{{ item.car.car_parameters }}"
                                         data-additional-note="{{ item.car.additional_note }}"
                                         data-source="{{ item.source }}"
-                                        data-car-update-url="{% if item.source == 'parts-cat.com' %}{% url 'inventory:cars_catalog_update' item.car.pk %}{% else %}{% url 'inventory:cars_crosscode_update' item.car.pk %}{% endif %}"
-                                        data-parts='[{% for part in item.parts %}{"id":{{ part.id }},"part_number":"{{ part.part_number|escapejs }}","brand":"{{ part.brand|escapejs }}","update_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_update' part.id %}{% else %}{% url 'inventory:part_update_crosscode' part.id %}{% endif %}","delete_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_delete' part.id %}{% else %}{% url 'inventory:part_delete_crosscode' part.id %}{% endif %}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
+                                        data-car-update-url="{% url 'inventory:cars_catalog_update' item.car.pk %}"
+                                        data-parts='[{% for part in item.parts %}{"id":{{ part.id }},"part_number":"{{ part.part_number|escapejs }}","brand":"{{ part.brand|escapejs }}","update_url":"{% url 'inventory:part_update' part.id %}","delete_url":"{% url 'inventory:part_delete' part.id %}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                         <span>Edit</span>
@@ -413,7 +431,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body modal-body-scroll">
             <form method="post" id="row-car-edit-form" class="row-car-edit-form">
                 {% csrf_token %}
                 <input type="hidden" name="next" id="row-edit-next" value="">
@@ -423,7 +441,7 @@
                         <label class="form-label">Car ID</label>
                         <input type="text" class="form-input" id="row-edit-car-id" readonly>
                     </div>
-                    <div class="form-group row-edit-wide">
+                    <div class="form-group">
                         <label class="form-label" for="row-edit-car-model">Car model <span class="required-mark">*</span></label>
                         <input type="text" name="car_model" id="row-edit-car-model" class="form-input" required maxlength="500">
                     </div>
@@ -453,11 +471,11 @@
                     </div>
                 </div>
                 <div class="row-edit-actions">
-                    <button type="submit" class="btn btn-primary">Save vehicle</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Save vehicle</button>
                 </div>
             </form>
 
-            <div class="row-edit-section-title" style="margin-top: var(--space-lg);">Matched parts</div>
+            <div class="row-edit-section-title" style="margin-top: var(--space-md);">Matched parts</div>
             <p class="row-edit-note">Edit or delete each part number one by one.</p>
             <div id="row-edit-parts-list" class="row-edit-parts-list"></div>
         </div>
@@ -503,15 +521,19 @@
     .search-tools-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: var(--space-xl);
+        grid-template-rows: auto auto 1fr;
+        column-gap: var(--space-xl);
+        row-gap: var(--space-md);
         align-items: stretch;
         margin-bottom: var(--space-xl);
     }
 
     .search-tools-block {
         min-width: 0;
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-rows: subgrid;
+        grid-row: span 3;
+        gap: 0;
     }
 
     .search-results-panel {
@@ -520,22 +542,35 @@
     }
 
     .panel-title {
-        margin: 0 0 var(--space-md);
+        margin: 0;
         font-size: var(--font-md);
         font-weight: 600;
         color: var(--text-primary);
+        min-height: 1.5em;
     }
 
     .panel-subtitle {
-        margin: calc(var(--space-md) * -1) 0 var(--space-md);
-        font-size: var(--font-xs);
-        color: var(--text-muted);
+        margin: 0;
+        font-size: var(--font-sm);
         line-height: 1.45;
+        color: var(--text-secondary);
+        min-height: 2.9em;
     }
 
     .panel-subtitle code {
         font-family: 'SF Mono', 'Fira Code', monospace;
         font-size: 0.95em;
+    }
+
+    .sample-file-link {
+        color: var(--error);
+        font-weight: 600;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .sample-file-link:hover {
+        color: #e11d48;
     }
 
     .search-autocomplete {
@@ -574,35 +609,54 @@
     }
 
     .search-card {
-        flex: 1;
         display: flex;
         flex-direction: column;
         justify-content: center;
         margin-bottom: 0;
-        min-height: 148px;
+        height: 120px;
+        min-height: 120px;
         overflow: visible;
+        box-sizing: border-box;
     }
 
-    .search-card .search-form-row,
-    .search-card .bulk-search-form {
+    .search-card .search-form-row {
         width: 100%;
-    }
-
-    .bulk-search-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-md);
-    }
-
-    .bulk-search-actions {
         display: flex;
         align-items: center;
         gap: var(--space-md);
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
     }
 
-    .bulk-search-actions .btn {
-        flex: 1 1 180px;
+    .search-card .search-bar {
+        flex: 1 1 auto;
+        max-width: none;
+        min-width: 0;
+    }
+
+    .search-card .form-input {
+        height: 48px;
+        box-sizing: border-box;
+    }
+
+    .search-card .search-file-input {
+        padding-top: 0.7rem;
+        padding-bottom: 0.55rem;
+        line-height: 1.2;
+    }
+
+    .search-card-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-sm);
+        flex: 0 0 auto;
+    }
+
+    .search-card .search-card-btn {
+        width: 132px;
+        min-width: 132px;
+        height: 48px;
+        padding: 0 var(--space-md);
+        box-sizing: border-box;
         justify-content: center;
     }
 
@@ -702,21 +756,20 @@
         border: 1px solid rgba(59, 130, 246, 0.2);
     }
     .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
-    .row-edit-card { max-width: 720px; }
     .row-edit-section-title {
-        font-size: var(--font-sm); font-weight: 600; color: var(--text-secondary);
-        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-md);
+        font-size: var(--font-xs); font-weight: 600; color: var(--text-secondary);
+        text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-sm);
     }
     .row-edit-note {
-        margin: 0 0 var(--space-md); font-size: var(--font-xs); color: var(--text-muted);
+        margin: 0 0 var(--space-sm); font-size: var(--font-xs); color: var(--text-muted);
     }
     .row-edit-grid {
         display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: var(--space-md);
+        gap: var(--space-sm);
     }
     .row-edit-wide { grid-column: 1 / -1; }
-    .row-edit-actions { margin-top: var(--space-md); }
-    .row-edit-parts-list { display: grid; gap: var(--space-sm); }
+    .row-edit-actions { margin-top: var(--space-sm); }
+    .row-edit-parts-list { display: grid; gap: var(--space-xs); max-height: 180px; overflow-y: auto; }
     .row-edit-part-item {
         display: flex; align-items: center; justify-content: space-between; gap: var(--space-md);
         padding: 0.65rem 0.85rem; border: 1px solid var(--card-border);
@@ -736,9 +789,18 @@
         border-radius: var(--radius-sm); font-size: var(--font-xs); font-weight: 600;
         white-space: nowrap;
     }
+    .source-catalog,
     .source-parts-cat {
         background: rgba(16, 185, 129, 0.12); color: #059669;
         border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .source-car-with-parts {
+        background: rgba(245, 158, 11, 0.12); color: #d97706;
+        border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+    .source-manual {
+        background: rgba(139, 92, 246, 0.12); color: #7c3aed;
+        border: 1px solid rgba(139, 92, 246, 0.25);
     }
     .source-other-db {
         background: rgba(59, 130, 246, 0.12); color: #2563eb;
@@ -773,26 +835,36 @@
         background: rgba(15, 23, 42, 0.4);
         backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
         display: flex; align-items: center; justify-content: center;
-        padding: var(--space-lg);
+        padding: var(--space-md);
         animation: modalFadeIn 0.2s ease;
+        overflow-y: auto;
     }
     .modal-card {
         background: var(--card-bg); border: 1px solid var(--card-border);
-        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
+        border-radius: var(--radius-xl); width: 100%; max-width: 480px;
+        max-height: min(88vh, 720px);
+        display: flex; flex-direction: column;
         box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
         animation: modalSlideUp 0.25s ease;
+        overflow: hidden;
     }
     .modal-header {
         display: flex; align-items: center; justify-content: space-between;
-        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
+        padding: 0.75rem 1rem; border-bottom: 1px solid var(--card-border);
+        flex-shrink: 0;
     }
-    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
+    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-md); font-weight: 600; color: var(--text-primary); }
     .modal-close {
         background: none; border: none; color: var(--text-muted); cursor: pointer;
         padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast);
     }
     .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
-    .modal-body { padding: var(--space-lg) var(--space-xl); }
+    .modal-body { padding: 0.85rem 1rem; }
+    .modal-body-scroll {
+        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+    }
     .bulk-summary-body { display: grid; gap: var(--space-sm); }
     .bulk-summary-line {
         display: flex; align-items: center; justify-content: space-between;
@@ -803,19 +875,48 @@
     .bulk-summary-line:last-child { border-bottom: none; }
     .bulk-summary-line strong { color: var(--text-primary); font-size: var(--font-md); }
 
+    .modal-card.row-edit-card { max-width: 560px; }
     .modal-footer {
-        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md);
-        padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border);
+        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm);
+        padding: 0.75rem 1rem; border-top: 1px solid var(--card-border);
+        flex-shrink: 0;
+        background: var(--card-bg);
     }
 
     @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
     @media (max-width: 1100px) {
-        .search-tools-grid { grid-template-columns: 1fr; }
+        .search-tools-grid {
+            grid-template-columns: 1fr;
+            grid-template-rows: none;
+        }
+
+        .search-tools-block {
+            display: flex;
+            flex-direction: column;
+            grid-row: auto;
+            gap: var(--space-md);
+        }
+
+        .panel-subtitle { min-height: 0; }
     }
 
     @media (max-width: 768px) {
+        .search-card {
+            height: auto;
+            min-height: 120px;
+        }
+
+        .search-card .search-form-row {
+            flex-wrap: wrap;
+        }
+
+        .search-card-actions,
+        .search-card .search-card-btn {
+            width: 100%;
+        }
+
         .search-form-row,
         .basket-assign-fields { flex-direction: column; align-items: stretch; }
         .search-form-row .search-bar,
@@ -1073,6 +1174,18 @@
                 renderParts(parts);
                 rowModal.style.display = 'flex';
                 document.getElementById('row-edit-car-model').focus();
+            });
+        });
+
+        document.querySelectorAll('.part-tag-edit').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                openPartEditor({
+                    part_number: button.dataset.partNumber || '',
+                    brand: button.dataset.partBrand || '',
+                    update_url: button.dataset.updateUrl,
+                });
             });
         });
 

@@ -37,14 +37,30 @@ class PartsCatalogServiceCrossCode:
 
     @classmethod
     def update_part(cls, part, payload):
-        # Brand is intentionally not editable here — it can only be changed
-        # via the Brand Names page, which renames it consistently across
-        # every part sharing that brand instead of one at a time.
+        """
+        Update one Cross Code row. Product Brand can be changed here for
+        single-row edits from search; use Brand Names for bulk renames.
+        """
         part_number = cls.clean_text(payload.get('part_number', ''), 100)
+        brand = cls.clean_text(payload.get('brand', part.brand or ''), 100)
+        product_no = cls.clean_text(payload.get('product_no', part.product_no or ''), 100)
+        oe_brand = cls.clean_text(payload.get('oe_brand', part.oe_brand or ''), 100)
+
         if not part_number:
-            return False, 'Part number is required.'
+            return False, 'Code is required.'
+        if not brand:
+            return False, 'Product Brand is required.'
+        if not product_no:
+            return False, 'Product No is required.'
+
         part.part_number = part_number
-        part.save(update_fields=['part_number', 'updated_at'])
+        part.brand = brand
+        part.product_no = product_no
+        part.oe_brand = oe_brand
+        part.group_id = product_no
+        part.save(update_fields=[
+            'part_number', 'brand', 'product_no', 'oe_brand', 'group_id', 'updated_at',
+        ])
         return True, ''
 
     @classmethod

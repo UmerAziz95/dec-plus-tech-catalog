@@ -2,44 +2,43 @@
 
 
 
-{% block title %}Import Data{% endblock %}
+{% block title %}Import Data — {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %}{% endblock %}
 
-{% block page_title %}Import Data{% endblock %}
+{% block page_title %}Import Data — {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %}{% endblock %}
 
-{% block breadcrumb %}Home / Import Data{% endblock %}
+{% block breadcrumb %}Home / {% if import_catalog == 'crosscode' %}Cross Code{% else %}Cross Cars{% endif %} / Import Data{% endblock %}
 
 
 
 {% block content %}
 
-<div class="fade-in" id="import-data-page" data-import-history-url="{{ import_history_url }}">
+<div class="fade-in" id="import-data-page" data-import-history-url="{{ import_history_url }}" data-import-catalog="{{ import_catalog }}">
 
     <div class="card" style="margin-bottom: var(--space-xl);">
 
         <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
-
-            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Car and Cross Code imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
-
+            {% if import_catalog == 'crosscode' %}
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Code imports. Matching rows already in the database are updated; new rows are created.
+            {% else %}
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Cars imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
+            {% endif %}
         </p>
 
-
-
-        <div class="import-fast-move" role="navigation" aria-label="Jump to import section">
+        {% if import_catalog == 'crosscode' %}
+        <div class="import-fast-move" role="navigation" aria-label="Jump to Cross Code section">
             <span class="import-fast-move-label">Jump to</span>
-            <a href="{% url 'inventory:import_data' %}?catalog=cars#cross-car-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'cars' %} is-active{% endif %}">Cross Car</a>
-            <a href="{% url 'inventory:import_data' %}?catalog=crosscode#cross-code-section" class="btn btn-secondary btn-sm import-fast-move-btn{% if import_catalog == 'crosscode' %} is-active{% endif %}">Cross Code</a>
-            <a href="#cross-code-import" class="btn btn-secondary btn-sm import-fast-move-btn">CC Import</a>
-            <a href="#cross-code-manual" class="btn btn-secondary btn-sm import-fast-move-btn">CC Manual</a>
+            <a href="#cross-code-import" class="btn btn-secondary btn-sm import-fast-move-btn">Import</a>
+            <a href="#cross-code-manual" class="btn btn-secondary btn-sm import-fast-move-btn">Manual add</a>
+            <a href="#file-import-history" class="btn btn-secondary btn-sm import-fast-move-btn">History</a>
             <a href="#import-data-page" class="btn btn-secondary btn-sm import-fast-move-btn">Top</a>
         </div>
+        {% endif %}
 
-        <span class="section-heading" id="cross-car-section" style="margin-top: 0; margin-bottom: var(--space-md); border-top: none; padding-top: 0;">Cross Car</span>
-
+        {% if import_catalog == 'cars' %}
         <div class="import-type-grid">
 
             <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
+                <div class="import-type-main" style="width: 100%;">
                 <h3 class="import-type-title">1. Car models</h3>
 
                 <p class="import-type-text">Upload a workbook with the <strong>CarId</strong> sheet only.</p>
@@ -62,22 +61,21 @@
 
                     </div>
 
-                    <button type="submit" class="btn btn-primary">Start cars import</button>
-                    <a href="{% url 'inventory:cars_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Start cars import</button>
+                        <a href="{% url 'inventory:cars_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    </div>
 
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=cars_import_history import_history_type="cars" csrf_token=csrf_token only %}
                 </div>
             </section>
 
 
 
             <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
+                <div class="import-type-main" style="width: 100%;">
                 <h3 class="import-type-title">2. Groups and links</h3>
 
                 <p class="import-type-text">Upload a workbook with the <strong>carId &amp; GroupId</strong> sheet only. Import cars first so links can be created.</p>
@@ -100,22 +98,21 @@
 
                     </div>
 
-                    <button type="submit" class="btn btn-primary">Start groups import</button>
-                    <a href="{% url 'inventory:groups_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Start groups import</button>
+                        <a href="{% url 'inventory:groups_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    </div>
 
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=groups_import_history import_history_type="groups" csrf_token=csrf_token only %}
                 </div>
             </section>
 
 
 
             <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
+                <div class="import-type-main" style="width: 100%;">
                 <h3 class="import-type-title">3. Part numbers</h3>
 
                 <p class="import-type-text">Upload a workbook with the <strong>groupId &amp; part_number</strong> sheet only. Groups are created from the file when missing.</p>
@@ -138,25 +135,24 @@
 
                     </div>
 
-                    <button type="submit" class="btn btn-primary">Start parts import</button>
-                    <a href="{% url 'inventory:parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Start parts import</button>
+                        <a href="{% url 'inventory:parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    </div>
 
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=parts_import_history import_history_type="parts" csrf_token=csrf_token only %}
                 </div>
             </section>
 
 
 
             <section class="import-type-card">
-                <div class="import-type-layout">
-                <div class="import-type-main">
+                <div class="import-type-main" style="width: 100%;">
                 <h3 class="import-type-title">4. Car with Parts</h3>
 
-                <p class="import-type-text">Upload a workbook with two columns: <strong>column A = car name</strong>, <strong>column B = part number</strong>. One row per part; repeat the car name for each of its parts. Existing car names are reused — only new part numbers are added.</p>
+                <p class="import-type-text">Upload a workbook with three columns: <strong>column A = brand name</strong>, <strong>column B = part number</strong>, <strong>column C = model</strong>. One row per part; repeat the model for each of its parts. Existing models are reused — only new part numbers are added (brand is saved on each part).</p>
 
                 <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
 
@@ -176,14 +172,14 @@
 
                     </div>
 
-                    <button type="submit" class="btn btn-primary">Start import</button>
-                    <a href="{% url 'inventory:car_with_parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Start import</button>
+                        <a href="{% url 'inventory:car_with_parts_sample_export' %}" class="btn btn-secondary" title="Download a sample file">Sample</a>
+                    </div>
 
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=car_with_parts_import_history import_history_type="car_with_parts" csrf_token=csrf_token only %}
                 </div>
             </section>
 
@@ -212,15 +208,14 @@
             </section>
 
         </div>
+        {% endif %}
 
-        <span class="section-heading" id="cross-code-section" style="margin: var(--space-xl) 0 var(--space-md);">Cross Code</span>
-
+        {% if import_catalog == 'crosscode' %}
         <div class="import-type-grid">
 
             <section class="import-type-card" id="cross-code-import">
-                <div class="import-type-layout">
-                <div class="import-type-main">
-                <h3 class="import-type-title">6. Import Cross Code Excel</h3>
+                <div class="import-type-main" style="width: 100%;">
+                <h3 class="import-type-title">1. Import Cross Code Excel</h3>
 
                 <p class="import-type-text">
                     Upload a workbook with columns
@@ -229,7 +224,7 @@
                     <strong>Brand</strong>, and
                     <strong>Code</strong>
                     (same layout as <em>Cross code example.xlsx</em>).
-                    Duplicate rows in the file and rows already in the database are skipped. Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong>.
+                    If the same Product Brand / Product No / Brand / Code already exists it is updated; otherwise a new row is created. Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong>.
                 </p>
 
                 <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
@@ -241,19 +236,19 @@
                         </span>
                         <input type="file" name="excel_file" class="form-input import-file-input" accept=".xlsx,.xlsm,.xls,.csv" required data-max-upload-bytes="{{ max_upload_size_bytes }}" data-max-upload-gb="{{ max_upload_size_gb }}" style="padding-top: 10px;">
                     </div>
-                    <button type="submit" class="btn btn-primary">Start Cross Code import</button>
-                    <a href="{% url 'inventory:parts_crosscode_sample_export' %}" class="btn btn-secondary" title="Download Cross code example sample">Sample</a>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Start Cross Code import</button>
+                        <a href="{% url 'inventory:parts_crosscode_sample_export' %}" class="btn btn-secondary" title="Download Cross code example sample">Sample</a>
+                    </div>
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
-                </div>
-                {% include "inventory/partials/import_history_list.html" with history=parts_crosscode_import_history import_history_type="parts_crosscode" csrf_token=csrf_token only %}
                 </div>
             </section>
 
             <section class="import-type-card" id="cross-code-manual">
                 <div class="import-type-main" style="width: 100%;">
-                <h3 class="import-type-title">7. Add a Cross Code row manually</h3>
+                <h3 class="import-type-title">2. Add a Cross Code row manually</h3>
 
                 <p class="import-type-text">Add one Product Brand / Product No / Brand / Code row without uploading a file.</p>
 
@@ -279,7 +274,9 @@
                             <input type="text" name="code" id="manual-add-code-cc" class="form-input" placeholder="e.g. 4605A049" required maxlength="100">
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Add row</button>
+                    <div class="import-form-actions">
+                        <button type="submit" class="btn btn-primary">Add row</button>
+                    </div>
                 </form>
 
                 <div class="feedback-stack import-form-feedback" aria-live="polite"></div>
@@ -287,8 +284,9 @@
             </section>
 
         </div>
+        {% endif %}
 
-
+        {% include "inventory/partials/import_file_history_table.html" %}
 
         {% if form.errors %}
 
@@ -362,7 +360,7 @@
 
             <h4 style="font-size: var(--font-sm); margin-bottom: var(--space-sm);">Errors and warnings (sample)</h4>
 
-            <div class="table-wrapper">
+            <div class="table-wrapper job-errors-scroll">
 
                 <table class="data-table" id="job-errors-table">
 
@@ -419,24 +417,103 @@
         white-space: nowrap;
     }
 
-    .import-fast-move-btn.is-active {
-        background: var(--accent, #2563eb);
-        border-color: var(--accent, #2563eb);
-        color: #fff;
+    .job-errors-scroll {
+        max-height: 280px;
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        background: var(--card-bg, #fff);
     }
 
-    #cross-car-section,
-    #cross-code-section,
+    .job-errors-scroll .data-table {
+        margin-bottom: 0;
+    }
+
+    .job-errors-scroll .data-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--surface-muted, #f8fafc);
+        box-shadow: 0 1px 0 var(--card-border);
+    }
+
     #cross-code-import,
-    #cross-code-manual {
+    #cross-code-manual,
+    #file-import-history {
         scroll-margin-top: 72px;
+    }
+
+    .file-import-history {
+        margin-top: var(--space-xl);
+        padding: var(--space-lg);
+    }
+
+    .file-import-history-header {
+        margin-bottom: var(--space-md);
+    }
+
+    .file-import-history-note {
+        margin-top: var(--space-xs);
+        font-size: var(--font-sm);
+        color: var(--text-muted);
+        line-height: 1.45;
+        max-width: 70ch;
+    }
+
+    .file-history-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        word-break: break-word;
+    }
+
+    .file-history-section {
+        font-size: var(--font-sm);
+        color: var(--text-secondary);
+    }
+
+    .file-history-count {
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+    }
+
+    .file-history-time {
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    .file-history-progress {
+        margin-top: 4px;
+        font-size: var(--font-xs);
+        color: #b45309;
+        font-weight: 500;
+    }
+
+    .file-history-error {
+        margin-top: 4px;
+        font-size: var(--font-xs);
+        color: #b91c1c;
+    }
+
+    .file-history-deleting-label {
+        font-size: var(--font-xs);
+        color: var(--text-muted);
+    }
+
+    .file-import-history-empty {
+        margin: 0;
+        padding: var(--space-lg) 0;
+        font-size: var(--font-sm);
+        color: var(--text-muted);
     }
 
     .manual-add-crosscode-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-md);
-        margin-bottom: var(--space-md);
+        width: 100%;
+        margin-bottom: 0;
     }
 
     @media (max-width: 720px) {
@@ -485,6 +562,43 @@
 
         line-height: 1.5;
 
+    }
+
+    .import-form {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-md);
+        margin-top: var(--space-sm);
+    }
+
+    .import-form > .search-bar {
+        flex: 0 0 auto;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
+    }
+
+    .import-form .import-file-input {
+        height: 48px;
+        box-sizing: border-box;
+    }
+
+    .import-form-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: var(--space-md);
+        margin-top: var(--space-xs);
+    }
+
+    .import-form-actions .btn {
+        min-width: 168px;
+        height: 44px;
+        box-sizing: border-box;
+        justify-content: center;
+        white-space: nowrap;
     }
 
     .import-type-layout {
@@ -610,6 +724,15 @@
         flex-wrap: wrap;
     }
 
+    .manual-add-form.manual-add-crosscode-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .manual-add-form.manual-add-crosscode-form .import-form-actions {
+        margin-top: 0;
+    }
+
     .manual-add-form .form-group {
         flex: 1 1 260px;
         margin-bottom: 0;
@@ -670,15 +793,6 @@
 {% block extra_js %}
 
 <script>
-
-    (function () {
-        if (window.location.hash) return;
-        var catalog = '{{ import_catalog|default:"cars" }}';
-        var targetId = catalog === 'crosscode' ? 'cross-code-section' : null;
-        if (!targetId) return;
-        var el = document.getElementById(targetId);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    })();
 
     (function () {
 
@@ -799,47 +913,28 @@
         const page = document.getElementById('import-data-page');
 
         const historyUrl = page && page.dataset.importHistoryUrl;
+        const catalog = (page && page.dataset.importCatalog) || 'cars';
 
         if (!historyUrl) return;
 
-
+        let fileHistoryPollNeeded = false;
 
         function applyHistoryPayload(payload) {
-
-            const html = payload.html || {};
-
-            const pollActive = payload.poll_active || {};
-
-            ['cars', 'groups', 'parts', 'car_with_parts', 'cars_crosscode', 'groups_crosscode', 'parts_crosscode'].forEach(function (type) {
-
-                const panel = document.querySelector('[data-import-history-panel="' + type + '"]');
-
-                if (!panel) return;
-
-                const body = panel.querySelector('[data-import-history-body]');
-
-                if (body && html[type] !== undefined) {
-
-                    body.innerHTML = html[type];
-
-                }
-
-                panel.dataset.importHistoryPoll = pollActive[type] ? '1' : '0';
-
-            });
-
+            const section = document.getElementById('file-import-history');
+            const body = section && section.querySelector('[data-file-history-body]');
+            if (body && payload.table_html !== undefined) {
+                body.innerHTML = payload.table_html;
+            }
+            fileHistoryPollNeeded = !!payload.poll;
         }
 
 
 
         function refreshImportHistory() {
-
-            return fetch(historyUrl, { headers: { 'Accept': 'application/json' } })
-
+            const url = historyUrl + (historyUrl.indexOf('?') === -1 ? '?' : '&') + 'catalog=' + encodeURIComponent(catalog);
+            return fetch(url, { headers: { 'Accept': 'application/json' } })
                 .then(function (r) { return r.json(); })
-
                 .then(applyHistoryPayload);
-
         }
 
 
@@ -849,11 +944,9 @@
 
 
         function historyShouldPoll() {
-
-            if (document.querySelector('[data-import-history-poll="1"]')) {
-
+            if (fileHistoryPollNeeded) return true;
+            if (document.querySelector('#file-import-history-table tr[data-batch-status="processing"], #file-import-history-table tr[data-batch-status="pending"], #file-import-history-table tr[data-deleting="1"]')) {
                 return true;
-
             }
 
             const panel = document.getElementById('import-job-panel');
@@ -866,7 +959,7 @@
 
             const label = statusEl.textContent.trim();
 
-            return label === 'Processing' || label === 'Pending';
+            return label === 'Processing' || label === 'Pending' || label === 'Deleting';
 
         }
 
@@ -904,15 +997,10 @@
 
 
 
-        if (historyShouldPoll()) {
-
-            refreshImportHistory().catch(function () {}).finally(function () {
-
-                scheduleHistoryPoll(2000);
-
-            });
-
-        }
+        // Keep the File import history table fresh (imports + background deletes).
+        refreshImportHistory().catch(function () {}).finally(function () {
+            scheduleHistoryPoll(2000);
+        });
 
     })();
 
@@ -964,7 +1052,7 @@
 
                     || (type === 'groups_crosscode' && (key === 'groups' || key === 'links'))
 
-                    || (type === 'parts_crosscode' && (key === 'groups' || key === 'parts'));
+                    || (type === 'parts_crosscode' && key === 'parts');
 
                 card.style.display = visible ? '' : 'none';
 
