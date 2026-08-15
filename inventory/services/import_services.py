@@ -465,7 +465,7 @@ class ExcelImportService:
         if not parsed['rows']:
             self._add_error(
                 sheet_name, 0,
-                'No valid rows found. Expected column A = car name, column B = part number.',
+                'No valid rows found. Expected column A = brand name, column B = part number, column C = model.',
             )
             self._finalize_failed(batch)
             return
@@ -490,27 +490,65 @@ class ExcelImportService:
         )
 
     def _parse_car_with_parts_sheet(self, sheet, sheet_name):
+        """
+        Column A = brand name, column B = part number, column C = model.
+        Header names are preferred; otherwise A/B/C are used in that order.
+        """
+        indices = {'brand': 0, 'part_number': 1, 'model': 2}
+        first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        start_row = 2
+        if first_row:
+            headers = [str(cell or '').strip().lower() for cell in first_row]
+            aliases = {
+                'brand': ['brand', 'brand name', 'brandname', 'brand_name'],
+                'part_number': ['part number', 'part_number', 'partnumber', 'part'],
+                'model': ['model', 'car model', 'car_model', 'car name', 'carname', 'car'],
+            }
+            matched = {}
+            for field, names in aliases.items():
+                for idx, header in enumerate(headers):
+                    if header in names:
+                        matched[field] = idx
+                        break
+            if len(matched) >= 2:
+                indices.update(matched)
+            elif not any(h in aliases['brand'] + aliases['part_number'] + aliases['model'] for h in headers):
+                # No recognizable headers: treat first row as data.
+                start_row = 1
+
         rows = []
         seen_pairs = set()
         car_names = set()
         total_rows = 0
-        for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            car_name = self._sanitize_text(row[0] if len(row) > 0 else '')
-            part_number = self._sanitize_text(row[1] if len(row) > 1 else '')
-            if not car_name and not part_number:
+        for row_number, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
+            brand = self._sanitize_text(row[indices['brand']] if len(row) > indices['brand'] else '')
+            part_number = self._sanitize_text(
+                row[indices['part_number']] if len(row) > indices['part_number'] else ''
+            )
+            model = self._sanitize_text(row[indices['model']] if len(row) > indices['model'] else '')
+
+            if not any([brand, part_number, model]):
                 continue
-            if not car_name or not part_number:
-                self._add_error(sheet_name, row_number, 'Both car name and part number are required.')
+            if not part_number or not model:
+                self._add_error(
+                    sheet_name, row_number,
+                    'Part number and model are required (column B and column C).',
+                )
                 continue
-            if car_name is None or part_number is None:
+            if None in (brand, part_number, model):
                 self._add_error(sheet_name, row_number, 'Script tags are not allowed.')
                 continue
-            key = (car_name, part_number)
+
+            key = (model, part_number)
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            rows.append(key)
-            car_names.add(car_name)
+            rows.append({
+                'model': model,
+                'brand': brand or '',
+                'part_number': part_number,
+            })
+            car_names.add(model)
             total_rows += 1
 
         return {'rows': rows, 'car_names': car_names, 'total_rows': total_rows}
@@ -548,28 +586,47 @@ class ExcelImportService:
 
     def _upsert_car_with_parts_parts(self, rows, group_by_car_name, batch, bs):
         resolved = [
-            (group_by_car_name[car_name], part_number)
-            for car_name, part_number in rows
-            if car_name in group_by_car_name
+            (group_by_car_name[row['model']], row['brand'], row['part_number'])
+            for row in rows
+            if row['model'] in group_by_car_name
         ]
         total = len(resolved)
         created_count = 0
         for start in range(0, total, bs):
             chunk = resolved[start:start + bs]
             self._update_progress(batch, f'Parts {min(start + bs, total)}/{total}')
-            group_ids = {group_id for group_id, _ in chunk}
-            part_nums = {part_number for _, part_number in chunk}
+            group_ids = {group_id for group_id, _, _ in chunk}
+            part_nums = {part_number for _, _, part_number in chunk}
             self._remove_duplicate_parts(Part, group_ids, part_nums)
-            existing = set(
-                Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums).values_list('group_id', 'part_number')
-            )
+            existing = {
+                (item.group_id, item.part_number): item
+                for item in Part.objects.filter(group_id__in=group_ids, part_number__in=part_nums)
+            }
             to_create = []
-            for group_id, part_number in chunk:
+            to_update = []
+            for group_id, brand, part_number in chunk:
                 key = (group_id, part_number)
-                if key in existing:
+                existing_item = existing.get(key)
+                if existing_item is not None:
+                    changed = False
+                    if brand and existing_item.brand != brand:
+                        existing_item.brand = brand
+                        changed = True
+                    if existing_item.import_batch_id is None:
+                        existing_item.import_batch = batch
+                        changed = True
+                    if changed:
+                        to_update.append(existing_item)
                     continue
-                existing.add(key)
-                to_create.append(Part(group_id=group_id, brand='', part_number=part_number, import_batch=batch))
+                existing[key] = None
+                to_create.append(Part(
+                    group_id=group_id,
+                    brand=brand or '',
+                    part_number=part_number,
+                    import_batch=batch,
+                ))
+            if to_update:
+                Part.objects.bulk_update(to_update, ['brand', 'import_batch'], batch_size=bs)
             if to_create:
                 with transaction.atomic():
                     Part.objects.bulk_create(to_create, batch_size=bs)
@@ -974,8 +1031,10 @@ class ExcelImportService:
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Car with parts'
-        sheet.append(['Car Name', 'Part Number'])
-        sheet.append(['SAMPLE CAR MODEL NAME 2020-2024', 'SAMPLE-PART-001'])
+        sheet.append(['Brand Name', 'Part Number', 'Model'])
+        sheet.append(['TOYOTA', 'SAMPLE-PART-001', 'TOYOTA COROLLA AE101 1991-2000'])
+        sheet.append(['TOYOTA', 'SAMPLE-PART-002', 'TOYOTA COROLLA AE101 1991-2000'])
+        sheet.append(['HONDA', 'SAMPLE-PART-003', 'HONDA CIVIC EG 1991-1995'])
         return workbook
 
 

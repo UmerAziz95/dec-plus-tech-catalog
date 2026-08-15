@@ -50,7 +50,7 @@
 
         <section class="search-tools-block" id="bulk-search-panel">
             <h2 class="panel-title">Bulk search</h2>
-            <p class="panel-subtitle">Exact match only. Upload <strong>.xlsx</strong> or <strong>.csv</strong>. Sample: <a href="{% url 'inventory:bulk_search_sample_export' %}" class="sample-file-link" id="bulk-sample-link" title="Download sample file">cross_cars_bulk_search_file</a></p>
+            <p class="panel-subtitle">Exact match only. Upload <strong>.xlsx</strong> or <strong>.csv</strong> with <strong>Brand Name</strong>, <strong>Brand Number</strong>, <strong>Part Number</strong>. Sample: <a href="{% url 'inventory:bulk_search_sample_export' %}" class="sample-file-link" id="bulk-sample-link" title="Download sample file">cross_cars_bulk_search_file</a></p>
             <div class="card search-card">
                 <form method="post" action="{% url 'inventory:search_part' %}" enctype="multipart/form-data" id="upload-form" class="search-form-row">
                     {% csrf_token %}
@@ -103,8 +103,8 @@
                         <thead>
                             <tr>
                                 <th>#</th>
-                                <th>Cross Brand</th>
-                                <th>Cross Code</th>
+                                <th>Brand Name</th>
+                                <th>Brand Number</th>
                                 <th>Part Number</th>
                                 <th>Match Status</th>
                                 <th>Vehicles Matched</th>
@@ -292,7 +292,7 @@
                                     {% endfor %}
                                 </td>
                                 <td>
-                                    <span class="source-badge {% if item.source == 'parts-cat.com' %}source-parts-cat{% else %}source-other-db{% endif %}">{{ item.source }}</span>
+                                    <span class="source-badge {% if item.source == 'Manual entry' %}source-manual{% elif item.source == 'Car with parts' %}source-car-with-parts{% else %}source-catalog{% endif %}">{{ item.source }}</span>
                                 </td>
                                 <td class="actions-cell">
                                     <button
@@ -309,8 +309,8 @@
                                         data-car-parameters="{{ item.car.car_parameters }}"
                                         data-additional-note="{{ item.car.additional_note }}"
                                         data-source="{{ item.source }}"
-                                        data-car-update-url="{% if item.source == 'parts-cat.com' %}{% url 'inventory:cars_catalog_update' item.car.pk %}{% else %}{% url 'inventory:cars_crosscode_update' item.car.pk %}{% endif %}"
-                                        data-parts='[{% for part in item.parts %}{"id":{{ part.id }},"part_number":"{{ part.part_number|escapejs }}","brand":"{{ part.brand|escapejs }}","update_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_update' part.id %}{% else %}{% url 'inventory:part_update_crosscode' part.id %}{% endif %}","delete_url":"{% if item.source == 'parts-cat.com' %}{% url 'inventory:part_delete' part.id %}{% else %}{% url 'inventory:part_delete_crosscode' part.id %}{% endif %}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
+                                        data-car-update-url="{% url 'inventory:cars_catalog_update' item.car.pk %}"
+                                        data-parts='[{% for part in item.parts %}{"id":{{ part.id }},"part_number":"{{ part.part_number|escapejs }}","brand":"{{ part.brand|escapejs }}","update_url":"{% url 'inventory:part_update' part.id %}","delete_url":"{% url 'inventory:part_delete' part.id %}"}{% if not forloop.last %},{% endif %}{% endfor %}]'
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                         <span>Edit</span>
@@ -789,9 +789,18 @@
         border-radius: var(--radius-sm); font-size: var(--font-xs); font-weight: 600;
         white-space: nowrap;
     }
+    .source-catalog,
     .source-parts-cat {
         background: rgba(16, 185, 129, 0.12); color: #059669;
         border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+    .source-car-with-parts {
+        background: rgba(245, 158, 11, 0.12); color: #d97706;
+        border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+    .source-manual {
+        background: rgba(139, 92, 246, 0.12); color: #7c3aed;
+        border: 1px solid rgba(139, 92, 246, 0.25);
     }
     .source-other-db {
         background: rgba(59, 130, 246, 0.12); color: #2563eb;

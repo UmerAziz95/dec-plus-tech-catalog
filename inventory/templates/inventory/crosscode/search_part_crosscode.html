@@ -83,7 +83,7 @@
             <div class="card panel-card did-you-mean-card">
                 <h3 class="panel-title" style="margin-bottom: var(--space-sm);">Did you mean?</h3>
                 <p class="empty-state-text" style="margin-bottom: var(--space-md);">
-                    Select a Code to continue searching for
+                    Select a Product No + Brand + Code to continue searching for
                     "<strong>{{ search_query }}</strong>".
                 </p>
                 {% if did_you_mean_candidates %}
@@ -91,16 +91,20 @@
                     <table class="data-table" id="did-you-mean-table">
                         <thead>
                             <tr>
+                                <th>Product No</th>
+                                <th>Brand</th>
                                 <th>Code</th>
                                 <th style="width: 140px;"></th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for code in did_you_mean_candidates %}
+                            {% for item in did_you_mean_candidates %}
                             <tr>
-                                <td><span class="part-number">{{ code }}</span></td>
+                                <td><span class="group-id-text">{{ item.product_no|default:"—" }}</span></td>
+                                <td><span class="brand-name">{{ item.oe_brand|default:"—" }}</span></td>
+                                <td><span class="part-number">{{ item.part_number }}</span></td>
                                 <td>
-                                    <a href="?q={{ code|urlencode }}&exact=1#search-results-panel" class="btn btn-primary btn-sm">Search</a>
+                                    <a href="?q={{ item.part_number|urlencode }}&exact=1#search-results-panel" class="btn btn-primary btn-sm">Search</a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -108,7 +112,7 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="empty-state-text">No matching Codes were found for "<strong>{{ search_query }}</strong>".</p>
+                <p class="empty-state-text">No matching Product No + Brand + Code rows were found for "<strong>{{ search_query }}</strong>".</p>
                 {% endif %}
             </div>
         {% elif bulk_has_searched and not searched %}
@@ -139,7 +143,7 @@
                                 <th>Cross Code</th>
                                 <th>Part Number</th>
                                 <th>Match Status</th>
-                                <th>Matches (Brand | Code)</th>
+                                <th>Matches (Product No | Brand | Code)</th>
                                 <th>Basket Status</th>
                                 <th>Action</th>
                             </tr>
@@ -164,17 +168,18 @@
                                     <span class="badge badge-red">Not Found</span>
                                     {% endif %}
                                 </td>
-                                <td class="car-model-cell">
-                                    {% if item.car_count > 0 %}
-                                        <div style="font-weight: 600; margin-bottom: 4px;">{{ item.car_count }} vehicle{{ item.car_count|pluralize }}</div>
-                                        <div class="car-id-text">
-                                        {% for car in item.top_cars %}
-                                            {{ car|truncatechars:30 }}<br>
-                                        {% endfor %}
-                                        {% if item.car_count > 3 %}
-                                            ...and {{ item.car_count|add:"-3" }} more
-                                        {% endif %}
+                                <td class="car-model-cell brand-code-cell">
+                                    {% if item.match_pairs %}
+                                        <div style="font-weight: 600; margin-bottom: 4px;">{{ item.car_count }} match{{ item.car_count|pluralize:"es" }}</div>
+                                        {% for pair in item.match_pairs %}
+                                        <div class="brand-code-row-line">
+                                            <span class="group-id-text">{{ pair.product_no|default:"—" }}</span>
+                                            <span class="results-divider">|</span>
+                                            <span class="brand-name">{{ pair.brand|default:"—" }}</span>
+                                            <span class="results-divider">|</span>
+                                            <span class="part-tag">{{ pair.code }}</span>
                                         </div>
+                                        {% endfor %}
                                     {% else %}
                                         <span style="color: var(--text-dim);">—</span>
                                     {% endif %}
@@ -268,9 +273,7 @@
                             <tr>
                                 <th>#</th>
                                 <th>Product Brand</th>
-                                <th>Product No</th>
-                                <th>Brand</th>
-                                <th>Code</th>
+                                <th>Product No | Brand | Code</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -279,9 +282,15 @@
                             <tr class="result-row">
                                 <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
                                 <td><span class="brand-name">{{ item.part.brand|default:"—" }}</span></td>
-                                <td><span class="group-id-text">{{ item.part.product_no|default:"—" }}</span></td>
-                                <td><span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span></td>
-                                <td><span class="part-tag">{{ item.part.part_number }}</span></td>
+                                <td class="brand-code-cell">
+                                    <div class="brand-code-row-line">
+                                        <span class="group-id-text">{{ item.part.product_no|default:"—" }}</span>
+                                        <span class="results-divider">|</span>
+                                        <span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span>
+                                        <span class="results-divider">|</span>
+                                        <span class="part-tag">{{ item.part.part_number }}</span>
+                                    </div>
+                                </td>
                                 <td class="actions-cell">
                                     <button
                                         type="button"
@@ -685,7 +694,11 @@
        parts on the same car line up row-by-row across all three columns. */
     .brand-code-cell { vertical-align: top; }
     .brand-code-row-line {
-        display: flex; align-items: center; min-height: 26px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+        min-height: 26px;
     }
     .brand-code-row-line + .brand-code-row-line { margin-top: 4px; }
     .brand-code-actions { gap: 2px; }

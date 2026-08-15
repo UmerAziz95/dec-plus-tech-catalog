@@ -29,11 +29,11 @@ class BulkSearchService:
             if not header:
                 continue
             h = str(header).lower().strip()
-            if h in ['brand', 'cross brand']:
+            if h in ['brand name', 'brandname', 'brand_name', 'brand', 'cross brand']:
                 brand_idx = i
-            elif h in ['brand number', 'cross code', 'code']:
+            elif h in ['brand number', 'brandnumber', 'brand_number', 'cross code', 'code']:
                 brand_number_idx = i
-            elif h in ['part number', 'part_number']:
+            elif h in ['part number', 'part_number', 'partnumber', 'part']:
                 part_number_idx = i
 
         return brand_idx, brand_number_idx, part_number_idx
@@ -278,8 +278,12 @@ class BulkSearchService:
             header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
             brand_idx, brand_number_idx, part_number_idx = cls._parse_header_indices(header_row)
 
-            if part_number_idx == -1:
-                return None, 'Could not find "Part Number" or "Part_number" column in the file.'
+            if brand_idx == -1 or brand_number_idx == -1 or part_number_idx == -1:
+                return None, (
+                    'Could not find required columns. Expected '
+                    '"Brand Name", "Brand Number", and "Part Number" '
+                    '(aliases like Cross Brand / Cross Code are also accepted).'
+                )
 
             rows_data, _part_numbers = cls._read_rows(sheet, brand_idx, brand_number_idx, part_number_idx)
             return rows_data, None
@@ -359,8 +363,9 @@ class BulkSearchService:
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Bulk search sample'
-        sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
+        sheet.append(['Brand Name', 'Brand Number', 'Part Number'])
         sheet.append(['AISIN', 'AS-12345', '3231A047'])
+        sheet.append(['BOSCH', 'BN-7788', 'MQ900871'])
         return workbook
 
     @staticmethod
@@ -368,7 +373,7 @@ class BulkSearchService:
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = 'Missed'
-        sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
+        sheet.append(['Brand Name', 'Brand Number', 'Part Number'])
         for row in missed_rows:
             sheet.append([
                 row.get('brand', ''),
@@ -383,9 +388,9 @@ class BulkSearchService:
         sheet = workbook.active
         sheet.title = 'Bulk search'
         sheet.append([
-            'Cross Brand',
-            'Cross Code',
-            'Part number',
+            'Brand Name',
+            'Brand Number',
+            'Part Number',
             'Status',
             'Vehicle count',
             'Sample models',
@@ -636,6 +641,7 @@ class BulkSearchServiceCrossCode(BulkSearchService):
                     'status': 'Missed (*)',
                     'car_count': 0,
                     'top_cars': [],
+                    'match_pairs': [],
                     'in_basket': False,
                 })
                 continue
@@ -649,10 +655,19 @@ class BulkSearchServiceCrossCode(BulkSearchService):
                     'status': 'Skipped',
                     'car_count': 0,
                     'top_cars': [],
+                    'match_pairs': [],
                     'in_basket': False,
                 })
                 continue
             if found_parts:
+                match_pairs = [
+                    {
+                        'product_no': (p.product_no or '').strip(),
+                        'brand': (p.oe_brand or '').strip(),
+                        'code': p.part_number or '',
+                    }
+                    for p in found_parts
+                ]
                 results.append({
                     'brand': brand,
                     'brand_number': brand_number,
@@ -660,9 +675,10 @@ class BulkSearchServiceCrossCode(BulkSearchService):
                     'status': 'Found',
                     'car_count': len(found_parts),
                     'top_cars': [
-                        f"{(p.brand or '—')} | {(p.part_number or '—')}"
-                        for p in found_parts[:3]
+                        f"{(pair['product_no'] or '—')} | {(pair['brand'] or '—')} | {(pair['code'] or '—')}"
+                        for pair in match_pairs[:10]
                     ],
+                    'match_pairs': match_pairs,
                     'in_basket': part_no in basket_part_numbers or any(
                         sanitize_part_number(p.part_number) in basket_part_numbers
                         for p in found_parts
@@ -676,6 +692,7 @@ class BulkSearchServiceCrossCode(BulkSearchService):
                     'status': 'Not Found',
                     'car_count': 0,
                     'top_cars': [],
+                    'match_pairs': [],
                     'in_basket': False,
                 })
         return results
@@ -708,4 +725,48 @@ class BulkSearchServiceCrossCode(BulkSearchService):
         sheet.title = 'Bulk search sample'
         sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
         sheet.append(['AISIN', 'AS-12345', '3231A047'])
+        return workbook
+
+    @staticmethod
+    def build_missed_workbook(missed_rows):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Missed'
+        sheet.append(['Cross Brand', 'Cross Code', 'Part Number'])
+        for row in missed_rows:
+            sheet.append([
+                row.get('brand', ''),
+                row.get('brand_number', ''),
+                row.get('part_number', ''),
+            ])
+        return workbook
+
+    @staticmethod
+    def build_results_workbook(results):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Bulk search'
+        sheet.append([
+            'Cross Brand',
+            'Cross Code',
+            'Part Number',
+            'Status',
+            'Match count',
+            'Matches (Product No | Brand | Code)',
+            'In basket',
+        ])
+        for row in results:
+            top = row.get('top_cars') or []
+            sample = '; '.join(top[:10])
+            if len(top) > 10:
+                sample = f'{sample}...'
+            sheet.append([
+                str(row.get('brand') or ''),
+                str(row.get('brand_number') or ''),
+                str(row.get('part_number') or ''),
+                str(row.get('status') or ''),
+                int(row.get('car_count') or 0),
+                sample,
+                'Yes' if row.get('in_basket') else 'No',
+            ])
         return workbook

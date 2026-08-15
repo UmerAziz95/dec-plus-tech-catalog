@@ -536,8 +536,6 @@ class ImportBatch(models.Model):
         elif self.import_type == self.TYPE_PARTS_CROSSCODE:
             if self.parts_count:
                 stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} imported')
-            if self.groups_count:
-                stats.append(f'{self.groups_count:,} group{"s" if self.groups_count != 1 else ""} created')
         if self.error_count:
             label = 'warnings' if self.status == self.STATUS_COMPLETED else 'issues'
             stats.append(f'{self.error_count:,} {label}')

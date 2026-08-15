@@ -3,7 +3,7 @@ from django.conf import settings
 
 from inventory.models import (
     BasketItem, BasketItemCrossCode, Car, CarCrossCode, CarGroup, CarGroupCrossCode,
-    Part, PartCrossCode,
+    ImportBatch, Part, PartCrossCode,
 )
 from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import (
@@ -16,9 +16,20 @@ from inventory.services.part_number_utils import (
 )
 
 
-# Display labels for the Source column on manual search results.
-SOURCE_PARTS_CAT = 'parts-cat.com'
+# Display labels for the Source column on Cross Cars search results.
+# Mapped from Import Data tools:
+#   1–3 (cars / groups / parts) → Catalog import
+#   4 (car with parts)          → Car with parts
+#   5 (add part manually)       → Manual entry
+SOURCE_CATALOG_IMPORT = 'Catalog import'
+SOURCE_CAR_WITH_PARTS = 'Car with parts'
+SOURCE_MANUAL_ENTRY = 'Manual entry'
+# Legacy aliases (older UI / Cross Code catalog tags).
+SOURCE_PARTS_CAT = SOURCE_CATALOG_IMPORT
 SOURCE_OTHER_DB = 'other_db'
+
+_MANUAL_GROUP_PREFIX = 'MANUAL'
+_CWP_GROUP_PREFIX = 'CWP'
 
 
 class PartSearchService:
@@ -27,9 +38,36 @@ class PartSearchService:
     part_model = Part
     basket_item_model = BasketItem
     basket_service = BasketService
-    source_label = SOURCE_PARTS_CAT
+    source_label = SOURCE_CATALOG_IMPORT
     # Cross Cars search page stays on its own catalog only.
     include_other_catalog = False
+
+    @classmethod
+    def resolve_part_source(cls, part):
+        """
+        Map a Cross Cars part to its Import Data tool source label.
+        Prefers group-id prefixes (manual / car-with-parts), then import_batch type.
+        """
+        group_id = (getattr(part, 'group_id', None) or '').strip()
+        group_upper = group_id.upper()
+        if group_upper.startswith(_MANUAL_GROUP_PREFIX):
+            return SOURCE_MANUAL_ENTRY
+        if group_upper.startswith(_CWP_GROUP_PREFIX):
+            return SOURCE_CAR_WITH_PARTS
+
+        batch = getattr(part, 'import_batch', None)
+        if batch is not None:
+            import_type = getattr(batch, 'import_type', None)
+            if import_type == ImportBatch.TYPE_CAR_WITH_PARTS:
+                return SOURCE_CAR_WITH_PARTS
+            if import_type in (
+                ImportBatch.TYPE_CARS,
+                ImportBatch.TYPE_GROUPS,
+                ImportBatch.TYPE_PARTS,
+            ):
+                return SOURCE_CATALOG_IMPORT
+
+        return SOURCE_CATALOG_IMPORT
 
     @classmethod
     def build_results(cls, query):
@@ -104,16 +142,19 @@ class PartSearchService:
 
     @classmethod
     def _build_catalog_results(cls, query):
-        """Search one catalog and tag every row with this service's source label."""
+        """Search one catalog and tag every row with its import-tool source label."""
         # ── Step 1: Find matching parts ──────────────────────────────
         # Try exact match first (uses B-tree index — instant).
-        matching_parts = list(filter_parts_exact(query, model=cls.part_model))
+        matching_parts = list(
+            filter_parts_exact(query, model=cls.part_model).select_related('import_batch')
+        )
 
         # Fall back to substring match only if exact match found nothing.
         # Uses GIN trigram index — still fast on 135M rows.
         if not matching_parts:
             matching_parts = list(
-                filter_parts_contains(query, model=cls.part_model)[:10000]  # Cap to prevent memory blow-up
+                filter_parts_contains(query, model=cls.part_model)
+                .select_related('import_batch')[:10000]  # Cap to prevent memory blow-up
             )
 
         if not matching_parts:
@@ -160,7 +201,7 @@ class PartSearchService:
         cars = cls.car_model.objects.filter(id__in=car_pks)
         cars_by_car_id = {str(c.id): c for c in cars}
 
-        # ── Step 5: Assemble results ─────────────────────────────────
+        # ── Step 5: Assemble results (one row per car + source) ───────
         car_data = {}
         for group_id, car_ids_for_group in group_to_car_ids.items():
             parts_for_group = parts_by_group.get(group_id, [])
@@ -169,21 +210,24 @@ class PartSearchService:
                 if not car:
                     continue
 
-                if car.id not in car_data:
-                    car_data[car.id] = {
-                        'car': car,
-                        'parts': [],
-                        'part_numbers': set(),
-                        'source': cls.source_label,
-                    }
-
                 for part in parts_for_group:
-                    if part.part_number not in car_data[car.id]['part_numbers']:
-                        car_data[car.id]['parts'].append(part)
-                        car_data[car.id]['part_numbers'].add(part.part_number)
+                    source = cls.resolve_part_source(part)
+                    key = (car.id, source)
+                    if key not in car_data:
+                        car_data[key] = {
+                            'car': car,
+                            'parts': [],
+                            'part_numbers': set(),
+                            'source': source,
+                        }
+
+                    bucket = car_data[key]
+                    if part.part_number not in bucket['part_numbers']:
+                        bucket['parts'].append(part)
+                        bucket['part_numbers'].add(part.part_number)
 
         results = list(car_data.values())
-        results.sort(key=lambda item: item['car'].car_model or '')
+        results.sort(key=lambda item: (item['car'].car_model or '', item.get('source') or ''))
         return results
 
     @staticmethod
@@ -331,7 +375,7 @@ class PartSearchServiceCrossCode(PartSearchService):
     @classmethod
     def find_candidate_codes(cls, raw_query, limit=40):
         """
-        Distinct Code values matching a wildcard (*) or prefix query.
+        Brand + Code pairs matching a wildcard (*) or prefix query.
         Used for the Did you mean? step.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
@@ -353,19 +397,30 @@ class PartSearchServiceCrossCode(PartSearchService):
                 ],
                 params=[like, PART_NUMBER_SANITIZE_REGEX, like],
             )
-            .order_by('part_number')
-            .values_list('part_number', flat=True)
-            .distinct()[: max(limit * 5, 100)]
+            .order_by('product_no', 'oe_brand', 'part_number')
+            .values('part_number', 'oe_brand', 'brand', 'product_no')
+            [: max(limit * 8, 160)]
         )
 
         candidates = []
         seen = set()
-        for part_number in rows:
-            key = sanitize_part_number(part_number)
-            if not key or key in seen:
+        for row in rows:
+            part_number = row.get('part_number') or ''
+            code_key = sanitize_part_number(part_number)
+            if not code_key:
+                continue
+            oe_brand = (row.get('oe_brand') or '').strip()
+            product_no = (row.get('product_no') or '').strip()
+            key = (code_key, oe_brand.upper(), product_no.upper())
+            if key in seen:
                 continue
             seen.add(key)
-            candidates.append(part_number)
+            candidates.append({
+                'part_number': part_number,
+                'oe_brand': oe_brand,
+                'brand': (row.get('brand') or '').strip(),
+                'product_no': product_no,
+            })
             if len(candidates) >= limit:
                 break
         return candidates
@@ -389,8 +444,8 @@ class PartSearchServiceCrossCode(PartSearchService):
 
         candidates = cls.find_candidate_codes(query)
         longer = [
-            code for code in candidates
-            if sanitize_part_number(code) != query
+            item for item in candidates
+            if sanitize_part_number(item['part_number']) != query
         ]
         has_exact = (
             filter_parts_exact(query, model=cls.part_model).exists()

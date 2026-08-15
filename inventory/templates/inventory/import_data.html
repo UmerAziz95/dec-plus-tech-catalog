@@ -152,7 +152,7 @@
                 <div class="import-type-main" style="width: 100%;">
                 <h3 class="import-type-title">4. Car with Parts</h3>
 
-                <p class="import-type-text">Upload a workbook with two columns: <strong>column A = car name</strong>, <strong>column B = part number</strong>. One row per part; repeat the car name for each of its parts. Existing car names are reused — only new part numbers are added.</p>
+                <p class="import-type-text">Upload a workbook with three columns: <strong>column A = brand name</strong>, <strong>column B = part number</strong>, <strong>column C = model</strong>. One row per part; repeat the model for each of its parts. Existing models are reused — only new part numbers are added (brand is saved on each part).</p>
 
                 <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
 
@@ -360,7 +360,7 @@
 
             <h4 style="font-size: var(--font-sm); margin-bottom: var(--space-sm);">Errors and warnings (sample)</h4>
 
-            <div class="table-wrapper">
+            <div class="table-wrapper job-errors-scroll">
 
                 <table class="data-table" id="job-errors-table">
 
@@ -415,6 +415,27 @@
 
     .import-fast-move-btn {
         white-space: nowrap;
+    }
+
+    .job-errors-scroll {
+        max-height: 280px;
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        background: var(--card-bg, #fff);
+    }
+
+    .job-errors-scroll .data-table {
+        margin-bottom: 0;
+    }
+
+    .job-errors-scroll .data-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--surface-muted, #f8fafc);
+        box-shadow: 0 1px 0 var(--card-border);
     }
 
     #cross-code-import,
@@ -1031,7 +1052,7 @@
 
                     || (type === 'groups_crosscode' && (key === 'groups' || key === 'links'))
 
-                    || (type === 'parts_crosscode' && (key === 'groups' || key === 'parts'));
+                    || (type === 'parts_crosscode' && key === 'parts');
 
                 card.style.display = visible ? '' : 'none';
 
