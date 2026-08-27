@@ -3,7 +3,18 @@ import re
 import openpyxl
 from django.db.models import Count, Q
 
-from inventory.models import Basket, BasketCrossCode, BasketItem, BasketItemCrossCode
+from inventory.models import (
+    Basket,
+    BasketCrossCode,
+    BasketItem,
+    BasketItemCrossCode,
+    PartCrossCode,
+)
+from inventory.services.part_number_utils import (
+    crosscode_wildcard_sql,
+    crosscode_wildcard_to_like,
+    sanitize_crosscode_search,
+)
 
 _TAG_RE = re.compile(r'<[^>]+>')
 
@@ -269,11 +280,8 @@ class BasketServiceCrossCode(BasketService):
     basket_item_model = BasketItemCrossCode
 
     @classmethod
-    def get_items_queryset(cls, user):
-        """One visible row per Brand Name + Brand Number + Brand + Code."""
-        return cls.basket_item_model.objects.filter(
-            user=user,
-        ).select_related('basket', 'part').order_by(
+    def _ordered_distinct_items(cls, queryset):
+        return queryset.select_related('basket', 'part').order_by(
             'basket__brand', 'basket__brand_number',
             'part__oe_brand', 'part__part_number', '-id',
         ).distinct(
@@ -282,19 +290,104 @@ class BasketServiceCrossCode(BasketService):
         )
 
     @classmethod
-    def filter_items_queryset(cls, user, query):
-        queryset = cls.get_items_queryset(user)
-        query = cls.clean_search_query(query)
-        if not query:
+    def _apply_search(cls, queryset, query):
+        """Same wildcard / contains rules as Search Parts Number and Edit Parts."""
+        raw = cls.clean_search_query(query)
+        search = sanitize_crosscode_search(raw, keep_star=True)
+        if not search:
             return queryset
+
+        queryset = queryset.select_related('basket', 'part')
+        if '*' in search:
+            like = crosscode_wildcard_to_like(search)
+            part_sql, part_params = crosscode_wildcard_sql(
+                like,
+                ('code', 'product_no', 'brand', 'oe_brand'),
+                table=PartCrossCode._meta.db_table,
+            )
+            basket_sql, basket_params = crosscode_wildcard_sql(
+                like,
+                ('brand', 'brand_number'),
+                table=cls.basket_model._meta.db_table,
+            )
+            return queryset.extra(
+                where=[f'({part_sql} OR {basket_sql})'],
+                params=part_params + basket_params,
+            )
+
         return queryset.filter(
-            Q(basket__brand__icontains=query)
-            | Q(basket__brand_number__icontains=query)
-            | Q(part__part_number__icontains=query)
-            | Q(part__brand__icontains=query)
-            | Q(part__product_no__icontains=query)
-            | Q(part__oe_brand__icontains=query)
+            Q(basket__brand__icontains=raw)
+            | Q(basket__brand_number__icontains=raw)
+            | Q(part__part_number__icontains=raw)
+            | Q(part__brand__icontains=raw)
+            | Q(part__product_no__icontains=raw)
+            | Q(part__oe_brand__icontains=raw)
         )
+
+    @classmethod
+    def get_items_queryset(cls, user):
+        """One visible row per Brand Name + Brand Number + Brand + Code."""
+        return cls._ordered_distinct_items(
+            cls.basket_item_model.objects.filter(user=user),
+        )
+
+    @classmethod
+    def filter_items_queryset(cls, user, query):
+        queryset = cls._apply_search(
+            cls.basket_item_model.objects.filter(user=user),
+            query,
+        )
+        return cls._ordered_distinct_items(queryset)
+
+    SUGGEST_FIELDS = (
+        'basket__brand_number',
+        'part__part_number',
+        'part__product_no',
+        'basket__brand',
+        'part__brand',
+        'part__oe_brand',
+    )
+
+    @classmethod
+    def suggest_values(cls, user, query, limit=40):
+        """Autocomplete values from the current user's basket while typing."""
+        raw = cls.clean_search_query(query)
+        if not sanitize_crosscode_search(raw, keep_star=False):
+            return []
+
+        queryset = cls.basket_item_model.objects.filter(user=user)
+        suggestions = []
+        seen = set()
+
+        def add_value(value):
+            text = (value or '').strip()
+            if not text:
+                return False
+            key = text.casefold()
+            if key in seen:
+                return False
+            seen.add(key)
+            suggestions.append(text)
+            return len(suggestions) >= limit
+
+        def collect(lookup):
+            for field in cls.SUGGEST_FIELDS:
+                rows = (
+                    queryset.filter(**{f'{field}__{lookup}': raw})
+                    .exclude(**{field: ''})
+                    .order_by(field)
+                    .values_list(field, flat=True)
+                    .distinct()[:limit]
+                )
+                for value in rows:
+                    if add_value(value):
+                        return True
+            return False
+
+        if collect('istartswith'):
+            return suggestions
+        collect('icontains')
+        return suggestions
 
     @classmethod
     def item_exists(cls, user, part, brand, brand_number, car=None):
@@ -418,27 +511,24 @@ class BasketServiceCrossCode(BasketService):
 
     @classmethod
     def filter_basket_groups(cls, user, query):
-        """Basket page lists unique Brand Name + Brand Number groups."""
+        """Groups whose Cross Brand, Cross Code, or family Brand/Code matches."""
         groups = cls.get_user_basket_groups(user)
         query = cls.clean_search_query(query)
         if not query:
             return groups
-        q = query.lower()
-        return [
-            group for group in groups
-            if q in (group.brand or '').lower()
-            or q in (group.brand_number or '').lower()
-        ]
+        matching_ids = set(
+            cls.filter_items_queryset(user, query).values_list('basket_id', flat=True)
+        )
+        return [group for group in groups if group.pk in matching_ids]
 
     @classmethod
     def filter_group_items_queryset(cls, user, basket_id, query):
-        queryset = cls.get_group_items_queryset(user, basket_id)
-        query = cls.clean_search_query(query)
-        if not query:
-            return queryset
-        return queryset.filter(
-            Q(part__part_number__icontains=query)
-            | Q(part__brand__icontains=query)
-            | Q(part__product_no__icontains=query)
-            | Q(part__oe_brand__icontains=query)
+        queryset = cls._apply_search(
+            cls.basket_item_model.objects.filter(user=user, basket_id=basket_id),
+            query,
+        )
+        return queryset.select_related('basket', 'part').order_by(
+            'part__oe_brand', 'part__part_number', '-id',
+        ).distinct(
+            'part__oe_brand', 'part__part_number',
         )

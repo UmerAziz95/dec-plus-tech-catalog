@@ -7,14 +7,27 @@
 {% block content %}
 <div class="fade-in">
 
-    {% if total_basket_count > 0 %}
+    {% if total_item_count > 0 %}
     <div class="card basket-search-card">
         <form method="get" action="" class="basket-search-form" id="basket-search-form">
-            <div class="search-bar basket-search-bar">
+            <div class="search-bar basket-search-bar search-autocomplete" data-suggestions-url="{{ basket_search_suggestions_url }}">
                 <span class="search-icon">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </span>
-                <input type="text" name="q" id="basket-search-input" class="form-input" placeholder="Search brand name or brand number..." value="{{ query }}" autocomplete="off">
+                <input
+                    type="text"
+                    name="q"
+                    id="basket-search-input"
+                    class="form-input"
+                    placeholder="Search Product Brand, Product No, Brand, or Code (use * as wildcard)..."
+                    value="{{ query }}"
+                    autocomplete="off"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-controls="basket-search-suggestions"
+                    aria-expanded="false"
+                >
+                <div class="part-search-suggestions" id="basket-search-suggestions" role="listbox" hidden></div>
             </div>
             <button type="submit" class="btn btn-primary btn-lg">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -30,18 +43,18 @@
     <div class="results-summary" style="margin-bottom: var(--space-md); padding: 0 var(--space-xs);">
         <div class="results-info">
             {% if searched %}
-            <span class="results-count">{{ filtered_count }}</span> group{{ filtered_count|pluralize }} found
+            <span class="results-count">{{ filtered_count }}</span> match{{ filtered_count|pluralize:"es" }} found
             <span class="results-divider">|</span>
-            <span>{{ total_basket_count }} total group{{ total_basket_count|pluralize }}</span>
+            <span>{{ total_item_count }} total Brand + Code line{{ total_item_count|pluralize }}</span>
             {% else %}
-            <span class="results-count">{{ total_basket_count }}</span> unique Brand Name + Brand Number group{{ total_basket_count|pluralize }}
+            <span class="results-count">{{ total_item_count }}</span> unique Brand + Code line{{ total_item_count|pluralize }}
             {% endif %}
-            <span class="results-divider">|</span>
-            <span>{{ total_item_count }} unique Brand + Code line{{ total_item_count|pluralize }}</span>
         </div>
+        {% if page_obj.paginator.num_pages > 1 %}
         <div class="results-page-info">
             Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
         </div>
+        {% endif %}
     </div>
 
     <div class="basket-toolbar card">
@@ -58,42 +71,49 @@
         </form>
     </div>
 
-    <!-- One row per unique Brand Name + Brand Number (like the Excel sample groups) -->
     <div class="card" style="padding: 0; overflow: hidden;">
         <div class="table-wrapper">
             <table class="data-table" id="basket-table">
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>Brand Name</th>
-                        <th>Brand Number</th>
-                        <th>Unique items</th>
+                        <th>Product Brand</th>
+                        <th>Product No</th>
+                        <th>Brand</th>
+                        <th>Code</th>
+                        <th>Added</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for group in page_obj %}
-                    <tr class="basket-row" id="basket-group-{{ group.id }}">
+                    {% for item in page_obj %}
+                    <tr class="basket-row" id="basket-row-{{ item.id }}">
                         <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
+                        <td><span class="brand-name">{{ item.part.brand|default:"—" }}</span></td>
+                        <td><span class="group-id-text">{{ item.part.product_no|default:"—" }}</span></td>
+                        <td><span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span></td>
+                        <td><span class="part-tag">{{ item.part.part_number }}</span></td>
                         <td>
-                            <span class="brand-name">{{ group.brand }}</span>
-                        </td>
-                        <td>
-                            <span class="brand-number-text">{{ group.brand_number|default:"—" }}</span>
-                        </td>
-                        <td>
-                            <span class="part-tag">{{ group.item_count }}</span>
+                            <span class="date-text">{{ item.created_at|date:"M d, Y" }}</span>
                         </td>
                         <td class="actions-cell">
-                            <a
-                                href="{% url 'inventory:basket_group_detail_crosscode' group.id %}"
-                                class="btn btn-sm btn-view-group"
-                                title="View unique Brand + Code rows"
-                                aria-label="View basket group"
+                            <form
+                                method="post"
+                                action="{% url 'inventory:remove_from_basket_crosscode' item.id %}"
+                                class="inline-form"
+                                data-confirm="Remove this item from the basket?"
+                                data-confirm-title="Remove item"
+                                data-confirm-ok="Remove"
+                                data-confirm-cancel="Cancel"
+                                data-confirm-tone="danger"
                             >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                                Open
-                            </a>
+                                {% csrf_token %}
+                                <input type="hidden" name="page" value="{{ page_obj.number }}">
+                                {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+                                <button type="submit" class="btn btn-sm btn-delete" title="Remove">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                            </form>
                         </td>
                     </tr>
                     {% endfor %}
@@ -102,7 +122,6 @@
         </div>
     </div>
 
-    <!-- Pagination -->
     {% if page_obj.has_other_pages %}
     <div class="pagination-wrapper">
         <div class="pagination">
@@ -148,7 +167,6 @@
     {% endif %}
 
     {% else %}
-    <!-- Empty Basket -->
     <div class="card">
         <div class="empty-state">
             <div class="empty-state-icon">
@@ -165,56 +183,6 @@
     {% endif %}
 
 </div>
-
-<!-- ========== EDIT MODAL ========== -->
-<div class="modal-overlay" id="edit-modal" style="display:none;">
-    <div class="modal-card">
-        <div class="modal-header">
-            <h3 class="modal-title">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                Edit Basket Item
-            </h3>
-            <button type="button" class="modal-close" onclick="closeEditModal()" aria-label="Close">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
-        </div>
-        <form method="post" id="edit-form">
-            {% csrf_token %}
-            <input type="hidden" name="page" value="{{ page_obj.number }}">
-            {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
-
-            <div class="modal-info-row">
-                <div class="modal-info-item">
-                    <span class="modal-info-label">Product No</span>
-                    <span class="modal-info-value" id="edit-car-name">—</span>
-                </div>
-                <div class="modal-info-item">
-                    <span class="modal-info-label">Code</span>
-                    <span class="modal-info-value" id="edit-part-number">—</span>
-                </div>
-            </div>
-
-            <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label" for="edit-brand">Brand Name <span style="color: var(--error);">*</span></label>
-                    <input type="text" name="brand" id="edit-brand" class="form-input" required>
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label class="form-label" for="edit-brand-number">Brand number <span style="color: var(--error);">*</span></label>
-                    <input type="text" name="brand_number" id="edit-brand-number" class="form-input" required>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    Save Changes
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_css %}
@@ -228,6 +196,7 @@
     .basket-search-card {
         margin-bottom: var(--space-md);
         padding: var(--space-lg);
+        overflow: visible;
     }
 
     .basket-search-form {
@@ -240,6 +209,41 @@
     .basket-search-bar {
         flex: 1 1 280px;
         min-width: 0;
+        position: relative;
+        overflow: visible;
+    }
+
+    .search-autocomplete { position: relative; }
+
+    .part-search-suggestions {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 50;
+        max-height: 260px;
+        overflow-y: auto;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: var(--radius-md);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+    }
+
+    .part-search-suggestion-item {
+        padding: 0.65rem 0.9rem;
+        font-size: var(--font-sm);
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        color: var(--text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .part-search-suggestion-item:hover,
+    .part-search-suggestion-item.is-active {
+        background: var(--accent-dim);
+        color: var(--accent-light);
     }
 
     .basket-toolbar {
@@ -260,25 +264,17 @@
 
     .brand-name { font-weight: 600; color: #fbbf24; }
     .brand-number-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-xs); color: var(--text-secondary); }
+    .group-id-text { font-family: 'SF Mono', 'Fira Code', monospace; font-size: var(--font-xs); color: var(--text-secondary); }
     .part-tag {
         display: inline-flex; padding: 2px 8px;
         background: var(--accent-dim); color: var(--accent-light); border-radius: var(--radius-sm);
         font-size: var(--font-xs); font-weight: 500; font-family: 'SF Mono', 'Fira Code', monospace;
     }
-    .car-model-cell { max-width: 280px; }
-    .car-model-text { font-weight: 500; color: var(--text-primary); font-size: var(--font-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .car-id-text { font-size: var(--font-xs); color: var(--text-dim); margin-top: 2px; font-family: 'SF Mono', 'Fira Code', monospace; }
     .row-number { font-size: var(--font-xs); color: var(--text-dim); width: 40px; }
     .date-text { font-size: var(--font-xs); color: var(--text-dim); white-space: nowrap; }
 
     .actions-cell { display: flex; gap: 4px; }
     .inline-form { display: inline; }
-
-    .btn-edit {
-        background: rgba(59, 130, 246, 0.1); color: #60a5fa;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-    }
-    .btn-edit:hover { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); }
 
     .btn-delete {
         background: rgba(244, 63, 94, 0.1); color: #f87171;
@@ -286,61 +282,9 @@
     }
     .btn-delete:hover { background: rgba(244, 63, 94, 0.2); border-color: rgba(244, 63, 94, 0.4); }
 
-    .btn-view-group {
-        background: rgba(34, 197, 94, 0.1);
-        color: #4ade80;
-        border: 1px solid rgba(34, 197, 94, 0.25);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .btn-view-group:hover {
-        background: rgba(34, 197, 94, 0.2);
-        border-color: rgba(34, 197, 94, 0.45);
-    }
-
     .basket-row { transition: all var(--t-fast); }
     .basket-row:hover { background: var(--accent-dim) !important; }
 
-    /* Modal styles (shared with search page) */
-    .modal-overlay {
-        position: fixed; inset: 0; z-index: 200;
-        background: rgba(15, 23, 42, 0.4);
-        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-        display: flex; align-items: center; justify-content: center;
-        padding: var(--space-lg); animation: modalFadeIn 0.2s ease;
-    }
-    .modal-card {
-        background: var(--card-bg); border: 1px solid var(--card-border);
-        border-radius: var(--radius-xl); width: 100%; max-width: 520px;
-        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12); animation: modalSlideUp 0.25s ease;
-    }
-    .modal-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--card-border);
-    }
-    .modal-title { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-lg); font-weight: 600; color: var(--text-primary); }
-    .modal-close {
-        background: none; border: none; color: var(--text-muted); cursor: pointer;
-        padding: 4px; border-radius: var(--radius-sm); transition: all var(--t-fast);
-    }
-    .modal-close:hover { color: var(--text-primary); background: var(--hover-bg, #f1f5f9); }
-    .modal-info-row {
-        display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);
-        padding: var(--space-md) var(--space-xl);
-        background: var(--surface-muted, #f8fafc); border-bottom: 1px solid var(--card-border);
-    }
-    .modal-info-label { display: block; font-size: var(--font-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-    .modal-info-value { display: block; font-size: var(--font-sm); color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .modal-body { padding: var(--space-lg) var(--space-xl); }
-    .modal-footer {
-        display: flex; align-items: center; justify-content: flex-end; gap: var(--space-md);
-        padding: var(--space-lg) var(--space-xl); border-top: 1px solid var(--card-border);
-    }
-    @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes modalSlideUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-
-    /* Pagination */
     .pagination-wrapper { display: flex; justify-content: center; margin-top: var(--space-xl); }
     .pagination { display: flex; align-items: center; gap: 4px; }
     .page-link {
@@ -353,7 +297,6 @@
     .page-link.active { background: var(--accent-dim); color: var(--accent-light); border-color: rgba(228, 0, 43, 0.3); }
 
     @media (max-width: 768px) {
-        .modal-info-row { grid-template-columns: 1fr; }
         .basket-search-form { flex-direction: column; align-items: stretch; }
         .basket-search-bar { width: 100%; }
     }
@@ -362,26 +305,109 @@
 
 {% block extra_js %}
 <script>
-    function openEditModal(itemId, brand, brandNumber, partNumber, carName) {
-        document.getElementById('edit-form').action = '/inventory/crosscode/basket/' + itemId + '/update/';
-        document.getElementById('edit-brand').value = brand;
-        document.getElementById('edit-brand-number').value = brandNumber;
-        document.getElementById('edit-part-number').textContent = partNumber;
-        document.getElementById('edit-car-name').textContent = carName;
-        document.getElementById('edit-modal').style.display = 'flex';
-        setTimeout(() => document.getElementById('edit-brand').focus(), 100);
-    }
+    (function () {
+        function debounce(fn, delay) {
+            let timer = null;
+            return function (...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), delay);
+            };
+        }
 
-    function closeEditModal() {
-        document.getElementById('edit-modal').style.display = 'none';
-    }
+        const wrapper = document.querySelector('.search-autocomplete');
+        const input = document.getElementById('basket-search-input');
+        const dropdown = document.getElementById('basket-search-suggestions');
+        const form = document.getElementById('basket-search-form');
+        if (!wrapper || !input || !dropdown) return;
 
-    document.getElementById('edit-modal').addEventListener('click', function(e) {
-        if (e.target === this) closeEditModal();
-    });
+        const suggestionsUrl = wrapper.dataset.suggestionsUrl;
+        if (!suggestionsUrl) return;
 
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeEditModal();
-    });
+        let items = [];
+        let activeIndex = -1;
+
+        function hideDropdown() {
+            dropdown.hidden = true;
+            dropdown.innerHTML = '';
+            items = [];
+            activeIndex = -1;
+            input.setAttribute('aria-expanded', 'false');
+        }
+
+        function setActive(index) {
+            const nodes = dropdown.querySelectorAll('.part-search-suggestion-item');
+            if (!nodes.length) return;
+            activeIndex = (index + nodes.length) % nodes.length;
+            nodes.forEach(function (node, idx) {
+                node.classList.toggle('is-active', idx === activeIndex);
+            });
+            nodes[activeIndex].scrollIntoView({ block: 'nearest' });
+        }
+
+        function selectItem(index) {
+            if (index < 0 || index >= items.length) return;
+            input.value = items[index];
+            hideDropdown();
+            if (form) form.submit();
+        }
+
+        function showSuggestions(nextItems) {
+            items = nextItems || [];
+            activeIndex = -1;
+            if (!items.length) {
+                hideDropdown();
+                return;
+            }
+            dropdown.innerHTML = items.map(function (text) {
+                return '<div class="part-search-suggestion-item" role="option">' + String(text).replace(/</g, '&lt;') + '</div>';
+            }).join('');
+            dropdown.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            dropdown.querySelectorAll('.part-search-suggestion-item').forEach(function (item, idx) {
+                item.addEventListener('mousedown', function (event) {
+                    event.preventDefault();
+                    selectItem(idx);
+                });
+            });
+        }
+
+        const fetchSuggestions = debounce(function (query) {
+            fetch(suggestionsUrl + '?q=' + encodeURIComponent(query), {
+                headers: { 'Accept': 'application/json' },
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) { showSuggestions(data.suggestions || []); })
+                .catch(function () { hideDropdown(); });
+        }, 200);
+
+        input.addEventListener('input', function () {
+            const query = input.value.trim();
+            if (!query.length) {
+                hideDropdown();
+                return;
+            }
+            fetchSuggestions(query);
+        });
+
+        input.addEventListener('keydown', function (event) {
+            if (dropdown.hidden || !items.length) return;
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setActive(activeIndex + 1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setActive(activeIndex <= 0 ? items.length - 1 : activeIndex - 1);
+            } else if (event.key === 'Enter' && activeIndex >= 0) {
+                event.preventDefault();
+                selectItem(activeIndex);
+            } else if (event.key === 'Escape') {
+                hideDropdown();
+            }
+        });
+
+        input.addEventListener('blur', function () {
+            setTimeout(hideDropdown, 150);
+        });
+    })();
 </script>
 {% endblock %}

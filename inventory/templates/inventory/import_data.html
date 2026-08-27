@@ -18,7 +18,7 @@
 
         <p style="font-size: var(--font-sm); color: var(--text-muted); margin-bottom: var(--space-lg);">
             {% if import_catalog == 'crosscode' %}
-            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Code imports. Matching rows already in the database are updated; new rows are created.
+            Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Code imports. Rows that already exist in the database are skipped; only new unique rows are added.
             {% else %}
             Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong> files for Cross Cars imports. Duplicate rows in the file (and matching rows already in the database) are skipped automatically. Groups rows read up to {{ import_groups_column_pairs }} car/group pairs per row. Parts rows read up to {{ import_parts_column_blocks }} group/brand/part blocks per row.
             {% endif %}
@@ -224,7 +224,7 @@
                     <strong>Brand</strong>, and
                     <strong>Code</strong>
                     (same layout as <em>Cross code example.xlsx</em>).
-                    If the same Product Brand / Product No / Brand / Code already exists it is updated; otherwise a new row is created. Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong>.
+                    If the same Product Brand / Product No / Brand / Code already exists it is skipped; only new unique rows are added. Accepts <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong>, and <strong>.csv</strong>.
                 </p>
 
                 <form method="post" enctype="multipart/form-data" class="import-form search-form-row" data-import-form>
@@ -475,6 +475,13 @@
     .file-history-count {
         font-variant-numeric: tabular-nums;
         font-weight: 600;
+    }
+
+    .file-history-skipped {
+        margin-top: 2px;
+        font-size: var(--font-xs);
+        font-weight: 500;
+        color: var(--text-muted);
     }
 
     .file-history-time {

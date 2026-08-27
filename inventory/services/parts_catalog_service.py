@@ -3,6 +3,11 @@ import re
 from django.db.models import Q
 
 from inventory.models import PartCrossCode
+from inventory.services.part_number_utils import (
+    crosscode_wildcard_sql,
+    crosscode_wildcard_to_like,
+    sanitize_crosscode_search,
+)
 
 _TAG_RE = re.compile(r'<[^>]+>')
 
@@ -24,16 +29,67 @@ class PartsCatalogServiceCrossCode:
     @classmethod
     def build_queryset(cls, query):
         queryset = cls.model.objects.all().order_by('part_number', 'id')
-        query = cls.clean_text(query, 255)
-        if query:
-            queryset = queryset.filter(
-                Q(part_number__icontains=query)
-                | Q(brand__icontains=query)
-                | Q(product_no__icontains=query)
-                | Q(oe_brand__icontains=query)
-                | Q(group_id__icontains=query)
+        raw = cls.clean_text(query, 255)
+        search = sanitize_crosscode_search(raw, keep_star=True)
+        if not search:
+            return queryset
+
+        if '*' in search:
+            like = crosscode_wildcard_to_like(search)
+            where_sql, params = crosscode_wildcard_sql(
+                like, ('code', 'product_no', 'brand', 'oe_brand'),
             )
-        return queryset
+            return queryset.extra(where=[where_sql], params=params)
+
+        return queryset.filter(
+            Q(part_number__icontains=raw)
+            | Q(brand__icontains=raw)
+            | Q(product_no__icontains=raw)
+            | Q(oe_brand__icontains=raw)
+            | Q(group_id__icontains=raw)
+        )
+
+    SUGGEST_FIELDS = ('part_number', 'product_no', 'brand', 'oe_brand')
+
+    @classmethod
+    def suggest_values(cls, query, limit=40):
+        """Autocomplete Product Brand, Product No, Brand, and Code while typing."""
+        raw = cls.clean_text(query, 255)
+        if not sanitize_crosscode_search(raw, keep_star=False):
+            return []
+
+        suggestions = []
+        seen = set()
+
+        def add_value(value):
+            text = (value or '').strip()
+            if not text:
+                return False
+            key = text.casefold()
+            if key in seen:
+                return False
+            seen.add(key)
+            suggestions.append(text)
+            return len(suggestions) >= limit
+
+        def collect(lookup):
+            for field in cls.SUGGEST_FIELDS:
+                rows = (
+                    cls.model.objects.exclude(**{field: ''})
+                    .filter(**{f'{field}__{lookup}': raw})
+                    .order_by(field)
+                    .values_list(field, flat=True)
+                    .distinct()[:limit]
+                )
+                for value in rows:
+                    if add_value(value):
+                        return True
+            return False
+
+        if collect('istartswith'):
+            return suggestions
+        collect('icontains')
+        return suggestions
 
     @classmethod
     def update_part(cls, part, payload):

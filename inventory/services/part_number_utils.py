@@ -57,6 +57,36 @@ def crosscode_wildcard_to_like(pattern):
     return '%'.join(escaped)
 
 
+def crosscode_wildcard_sql(like, fields, table=''):
+    """
+    Build a WHERE clause for Cross Code wildcard search.
+
+    ``fields`` may include ``code``, ``product_no``, ``brand``, ``oe_brand``,
+    and ``brand_number``. Pass ``table`` to qualify columns on a joined alias.
+    """
+    def col(name):
+        return f'{table}.{name}' if table else name
+
+    clauses = []
+    params = []
+    for field in fields:
+        if field == 'code':
+            clauses.append(f"{col('part_number_norm')} LIKE %s ESCAPE '\\'")
+            params.append(like)
+        elif field == 'product_no':
+            clauses.append(
+                f"regexp_replace(upper(coalesce({col('product_no')}, '')), %s, '', 'g') "
+                "LIKE %s ESCAPE '\\'"
+            )
+            params.extend([PART_NUMBER_SANITIZE_REGEX, like])
+        elif field in ('brand', 'oe_brand', 'brand_number'):
+            clauses.append(f"UPPER(coalesce({col(field)}, '')) LIKE %s ESCAPE '\\'")
+            params.append(like)
+    if not clauses:
+        return 'FALSE', []
+    return '(' + ' OR '.join(clauses) + ')', params
+
+
 def annotate_part_number_normalized(queryset):
     """
     Annotate queryset with part_number_norm using the stored generated column.

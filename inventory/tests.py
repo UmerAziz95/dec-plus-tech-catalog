@@ -4,10 +4,11 @@ from django.contrib.auth import get_user_model
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
-from inventory.models import Car, CarGroup, ImportBatch, Part, PartCrossCode
+from inventory.models import BasketCrossCode, Car, CarGroup, ImportBatch, Part, PartCrossCode
 from django.core.files.uploadedfile import SimpleUploadedFile
+from inventory.services.basket_service import BasketServiceCrossCode
 from inventory.services.bulk_search_service import BulkSearchService, BulkSearchServiceCrossCode
-from inventory.services.import_services import ExcelImportService, ImportBatchDeleteService
+from inventory.services.import_services import ExcelImportService, ImportBatchDeleteService, normalize_crosscode_product_brand
 from inventory.services.manual_entry_service import ManualEntryService
 from inventory.services.part_number_utils import (
     crosscode_wildcard_to_like,
@@ -69,6 +70,13 @@ class CrossCodeSanitizationTests(SimpleTestCase):
     def test_wildcard_to_like(self):
         self.assertEqual(crosscode_wildcard_to_like('43022*A01'), '43022%A01')
 
+    def test_jikiu_catalogue_url_becomes_product_brand_name(self):
+        self.assertEqual(
+            normalize_crosscode_product_brand('https://www.jikiu.jp/catalogue/804628'),
+            'JIKIU',
+        )
+        self.assertEqual(normalize_crosscode_product_brand('NIBK'), 'NIBK')
+
 
 class CrossCodeSearchRulesTests(TestCase):
     def setUp(self):
@@ -88,19 +96,61 @@ class CrossCodeSearchRulesTests(TestCase):
             brand='NIBK', product_no='P5', oe_brand='MIT', part_number='43022YA01', group_id='P5',
         )
 
-    def test_unique_exact_does_not_ask(self):
+    def test_unique_exact_skips_did_you_mean_and_opens_family(self):
         needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('MR955727')
         self.assertFalse(needs)
-        self.assertEqual(query, 'MR955727')
         self.assertEqual(candidates, [])
+        self.assertEqual(sanitize_part_number(query), 'MR955727')
 
-    def test_prefix_asks_did_you_mean(self):
-        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('D1086')
+    def test_same_code_same_family_different_brands_asks_did_you_mean(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='FAM', oe_brand='TOYOTA', part_number='SHARE1', group_id='FAM',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='FAM', oe_brand='HONDA', part_number='SHARE1', group_id='FAM',
+        )
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('SHARE1')
         self.assertTrue(needs)
-        self.assertEqual(query, 'D1086')
+        pairs = {
+            (c['oe_brand'], sanitize_part_number(c['part_number']))
+            for c in candidates
+        }
+        self.assertEqual(pairs, {('TOYOTA', 'SHARE1'), ('HONDA', 'SHARE1')})
+
+    def test_same_code_different_brands_asks_did_you_mean(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='DUP1', oe_brand='TOYOTA', part_number='SAMECODE1', group_id='DUP1',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='DUP2', oe_brand='HONDA', part_number='SAMECODE1', group_id='DUP2',
+        )
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('SAMECODE1')
+        self.assertTrue(needs)
+        self.assertEqual(sanitize_part_number(query), 'SAMECODE1')
+        pairs = {
+            (c['oe_brand'], sanitize_part_number(c['part_number']))
+            for c in candidates
+        }
+        self.assertEqual(pairs, {('TOYOTA', 'SAMECODE1'), ('HONDA', 'SAMECODE1')})
+
+    def test_bulk_candidates_are_exact_matches_only(self):
+        rows = [
+            {'brand': 'A', 'brand_number': 'B', 'part_number': 'D1086', 'bulk_miss': False},
+            {'brand': 'A', 'brand_number': 'B', 'part_number': '43022*A01', 'bulk_miss': True},
+            {'brand': 'A', 'brand_number': 'B', 'part_number': 'D10867418', 'bulk_miss': False},
+        ]
+        candidates = PartSearchServiceCrossCode.candidates_from_bulk_rows(rows)
         norms = {sanitize_part_number(c['part_number']) for c in candidates}
-        self.assertIn('D1086', norms)
-        self.assertIn('D10867418', norms)
+        self.assertEqual(norms, {'D1086', 'D10867418'})
+        self.assertTrue(all(c.get('oe_brand') for c in candidates))
+
+    def test_prefix_asks_did_you_mean_when_no_exact_code(self):
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('43022')
+        self.assertTrue(needs)
+        self.assertEqual(query, '43022')
+        norms = {sanitize_part_number(c['part_number']) for c in candidates}
+        self.assertIn('43022XA01', norms)
+        self.assertIn('43022YA01', norms)
         self.assertTrue(all(c.get('oe_brand') == 'MIT' for c in candidates))
 
     def test_wildcard_asks_did_you_mean(self):
@@ -112,6 +162,15 @@ class CrossCodeSearchRulesTests(TestCase):
         self.assertIn('43022YA01', norms)
         self.assertTrue(all('oe_brand' in c and 'part_number' in c for c in candidates))
 
+    def test_wildcard_brand_name_asks_did_you_mean(self):
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('MI*')
+        self.assertTrue(needs)
+        self.assertEqual(query, 'MI*')
+        self.assertTrue(all(c.get('oe_brand') == 'MIT' for c in candidates))
+        norms = {sanitize_part_number(c['part_number']) for c in candidates}
+        self.assertIn('D1086', norms)
+        self.assertIn('43022XA01', norms)
+
     def test_product_no_candidates_include_brand_and_code(self):
         PartCrossCode.objects.create(
             brand='NIBK', product_no='PN9001', oe_brand='TOYOTA', part_number='CODE9001A', group_id='PN9001',
@@ -121,12 +180,33 @@ class CrossCodeSearchRulesTests(TestCase):
         )
         candidates = PartSearchServiceCrossCode.find_candidate_codes('PN9001')
         pairs = {
-            (c['product_no'], c['oe_brand'], sanitize_part_number(c['part_number']))
+            (c['oe_brand'], sanitize_part_number(c['part_number']))
             for c in candidates
         }
-        self.assertIn(('PN9001', 'TOYOTA', 'CODE9001A'), pairs)
-        self.assertIn(('PN9001', 'HONDA', 'CODE9001B'), pairs)
-        self.assertTrue(all(c.get('product_no') for c in candidates if sanitize_part_number(c['part_number']).startswith('CODE9001')))
+        self.assertIn(('TOYOTA', 'CODE9001A'), pairs)
+        self.assertIn(('HONDA', 'CODE9001B'), pairs)
+
+    def test_exact_product_no_skips_did_you_mean_and_opens_family(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='PN9001', oe_brand='TOYOTA', part_number='CODE9001A', group_id='PN9001',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='PN9001', oe_brand='HONDA', part_number='CODE9001B', group_id='PN9001',
+        )
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('PN9001')
+        self.assertFalse(needs)
+        self.assertEqual(candidates, [])
+        self.assertEqual(query, 'PN9001')
+
+        results = PartSearchServiceCrossCode.build_results('PN9001')
+        codes = {sanitize_part_number(item['part'].part_number) for item in results}
+        self.assertEqual(codes, {'CODE9001A', 'CODE9001B'})
+
+    def test_exact_code_with_longer_sibling_still_opens_family(self):
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('D1086')
+        self.assertFalse(needs)
+        self.assertEqual(candidates, [])
+        self.assertEqual(sanitize_part_number(query), 'D1086')
 
     def test_exact_search_after_confirm(self):
         results = PartSearchServiceCrossCode.build_results('D1086')
@@ -168,12 +248,170 @@ class CrossCodeSearchRulesTests(TestCase):
             'D1086',
         )
 
+    def test_family_results_can_filter_to_selected_brand(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='FAM1', oe_brand='TOYOTA', part_number='CODE230020', group_id='FAM1',
+        )
+        PartCrossCode.objects.create(
+            brand='ATE', product_no='FAM2', oe_brand='HONDA', part_number='CODE230020', group_id='FAM2',
+        )
+        toyota_family = PartSearchServiceCrossCode.build_results('CODE230020', oe_brand='TOYOTA')
+        honda_family = PartSearchServiceCrossCode.build_results('CODE230020', oe_brand='HONDA')
+        self.assertTrue(toyota_family)
+        self.assertTrue(honda_family)
+        self.assertTrue(all(item['part'].product_no == 'FAM1' for item in toyota_family))
+        self.assertTrue(all(item['part'].product_no == 'FAM2' for item in honda_family))
+
     def test_single_search_results_include_brand_and_code(self):
         results = PartSearchServiceCrossCode.build_results('D1086')
         self.assertEqual(len(results), 1)
         part = results[0]['part']
         self.assertEqual(part.oe_brand, 'MIT')
         self.assertEqual(sanitize_part_number(part.part_number), 'D1086')
+
+    def test_family_pagination_keeps_exact_flag(self):
+        user = User.objects.create_user(email='page@example.com', password='Test@123')
+        client = Client()
+        client.force_login(user)
+        for i in range(26):
+            PartCrossCode.objects.create(
+                brand='NIBK',
+                product_no='P3',
+                oe_brand=f'BR{i:02d}',
+                part_number=f'MR955727X{i:02d}',
+                group_id='P3',
+            )
+        family_url = reverse('inventory:search_part_crosscode')
+        page_two = client.get(family_url, {'q': 'MR955727', 'exact': '1', 'page': '2'})
+        self.assertNotContains(page_two, 'id="did-you-mean-table"')
+        self.assertContains(page_two, 'exact=1')
+        self.assertContains(page_two, 'search-results-table')
+
+        dropped_exact = client.get(family_url, {'q': 'MR955727', 'page': '2'})
+        self.assertNotContains(dropped_exact, 'id="did-you-mean-table"')
+        self.assertContains(dropped_exact, 'search-results-table')
+
+
+class CrossCodePartsCatalogSearchTests(TestCase):
+    def setUp(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P4', oe_brand='MIT', part_number='43022XA01', group_id='P4',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P5', oe_brand='MIT', part_number='43022YA01', group_id='P5',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P1', oe_brand='MIT', part_number='D1086', group_id='P1',
+        )
+
+    def test_wildcard_matches_code_like_search_by_part_number(self):
+        from inventory.services.parts_catalog_service import PartsCatalogServiceCrossCode
+        codes = set(
+            PartsCatalogServiceCrossCode.build_queryset('43022*A01').values_list('part_number', flat=True)
+        )
+        self.assertEqual(codes, {'43022XA01', '43022YA01'})
+
+    def test_plain_search_still_matches_brand_and_code(self):
+        from inventory.services.parts_catalog_service import PartsCatalogServiceCrossCode
+        codes = set(
+            PartsCatalogServiceCrossCode.build_queryset('D1086').values_list('part_number', flat=True)
+        )
+        self.assertEqual(codes, {'D1086'})
+
+    def test_wildcard_matches_brand_name(self):
+        from inventory.services.parts_catalog_service import PartsCatalogServiceCrossCode
+        codes = set(
+            PartsCatalogServiceCrossCode.build_queryset('MI*').values_list('part_number', flat=True)
+        )
+        self.assertEqual(codes, {'43022XA01', '43022YA01', 'D1086'})
+
+    def test_suggestions_prefix_match_codes(self):
+        from inventory.services.parts_catalog_service import PartsCatalogServiceCrossCode
+        self.assertEqual(
+            PartsCatalogServiceCrossCode.suggest_values('43022'),
+            ['43022XA01', '43022YA01'],
+        )
+
+
+class CrossCodeBrandNamesCombinedTests(TestCase):
+    def setUp(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P1', oe_brand='HONDA', part_number='C1', group_id='P1',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P2', oe_brand='TOYOTA', part_number='C2', group_id='P2',
+        )
+        PartCrossCode.objects.create(
+            brand='ATE', product_no='P3', oe_brand='HONDA', part_number='C3', group_id='P3',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='P4', oe_brand='HONDA', part_number='C4', group_id='P4',
+        )
+
+    def test_list_shows_unique_brand_names_with_row_counts(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        self.assertEqual(BrandNamesServiceCrossCode.list_rows(), [
+            {'name': 'ATE', 'row_count': 1},
+            {'name': 'HONDA', 'row_count': 3},
+            {'name': 'NIBK', 'row_count': 3},
+            {'name': 'TOYOTA', 'row_count': 1},
+        ])
+
+    def test_search_matches_unique_brand_names(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        self.assertEqual(BrandNamesServiceCrossCode.list_rows('honda'), [
+            {'name': 'HONDA', 'row_count': 3},
+        ])
+
+    def test_search_wildcard_matches_brand_names(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        self.assertEqual(BrandNamesServiceCrossCode.list_rows('HON*'), [
+            {'name': 'HONDA', 'row_count': 3},
+        ])
+        self.assertEqual(
+            {row['name'] for row in BrandNamesServiceCrossCode.list_rows('N*')},
+            {'NIBK'},
+        )
+
+    def test_suggestions_prefix_match_brand_names(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        self.assertEqual(BrandNamesServiceCrossCode.suggest_names('HON'), ['HONDA'])
+        self.assertEqual(BrandNamesServiceCrossCode.suggest_names('NIB'), ['NIBK'])
+
+    def test_rename_updates_every_matching_row(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand('HONDA', 'HONDA MOTOR')
+        self.assertTrue(ok)
+        self.assertEqual(error, '')
+        self.assertEqual(updated_count, 3)
+        self.assertEqual(PartCrossCode.objects.filter(oe_brand='HONDA MOTOR').count(), 3)
+        self.assertEqual(PartCrossCode.objects.filter(oe_brand='HONDA').count(), 0)
+        self.assertEqual(PartCrossCode.objects.filter(brand='NIBK').count(), 3)
+        self.assertEqual(PartCrossCode.objects.filter(brand='ATE').count(), 1)
+
+    def test_rename_product_brand_updates_every_matching_row(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand('NIBK', 'NIBK NEW')
+        self.assertTrue(ok)
+        self.assertEqual(error, '')
+        self.assertEqual(updated_count, 3)
+        self.assertEqual(PartCrossCode.objects.filter(brand='NIBK NEW').count(), 3)
+        self.assertEqual(PartCrossCode.objects.filter(brand='NIBK').count(), 0)
+        self.assertEqual(PartCrossCode.objects.filter(oe_brand='HONDA').count(), 3)
+
+    def test_rename_updates_both_columns_when_name_appears_in_each(self):
+        from inventory.services.brand_names_service import BrandNamesServiceCrossCode
+        PartCrossCode.objects.create(
+            brand='HONDA', product_no='P5', oe_brand='MAZDA', part_number='C5', group_id='P5',
+        )
+        ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand('HONDA', 'HONDA MOTOR')
+        self.assertTrue(ok)
+        self.assertEqual(error, '')
+        self.assertEqual(updated_count, 4)
+        self.assertEqual(PartCrossCode.objects.filter(brand='HONDA').count(), 0)
+        self.assertEqual(PartCrossCode.objects.filter(oe_brand='HONDA').count(), 0)
+        self.assertEqual(PartCrossCode.objects.filter(brand='HONDA MOTOR').count(), 1)
+        self.assertEqual(PartCrossCode.objects.filter(oe_brand='HONDA MOTOR').count(), 3)
 
 
 class ImportFileHistoryTests(TestCase):
@@ -210,8 +448,10 @@ class ImportFileHistoryTests(TestCase):
 
     def test_batch_helpers(self):
         self.assertEqual(self.cc_batch.imported_records, 95)
+        self.assertEqual(self.cc_batch.duplicate_skipped, 5)
         self.assertEqual(self.cc_batch.section_label, 'Cross Code references')
         self.assertEqual(self.cars_batch.section_label, 'Car models')
+        self.assertEqual(self.cars_batch.duplicate_skipped, 0)
         self.assertFalse(self.cc_batch.is_deleting)
 
         self.cc_batch.status = ImportBatch.STATUS_PROCESSING
@@ -225,6 +465,7 @@ class ImportFileHistoryTests(TestCase):
         self.assertContains(resp, 'File import history')
         self.assertContains(resp, 'crosscode.xlsx')
         self.assertContains(resp, 'Cross Code references')
+        self.assertContains(resp, '5 duplicate skipped')
         self.assertNotContains(resp, 'cars.xlsx')
         self.assertNotContains(resp, 'secret.xlsx')
 
@@ -350,7 +591,7 @@ class CrossCodeImportUpsertTests(TestCase):
             import_batch=self.old_batch,
         )
 
-    def test_existing_row_is_updated_not_skipped(self):
+    def test_existing_row_is_skipped_and_only_new_rows_are_saved(self):
         service = ExcelImportService()
         rows = [
             {
@@ -368,16 +609,39 @@ class CrossCodeImportUpsertTests(TestCase):
                 'group_id': 'PN2',
             },
         ]
-        saved = service._upsert_crosscode_parts_batched(rows, self.new_batch, bs=100)
-        self.assertEqual(saved, 2)
+        saved = service._insert_new_crosscode_parts_batched(rows, self.new_batch, bs=100)
+        self.assertEqual(saved, 1)
         self.assertEqual(PartCrossCode.objects.count(), 2)
 
         existing = PartCrossCode.objects.get(product_no='PN1', part_number='CODE1')
-        self.assertEqual(existing.import_batch_id, self.new_batch.id)
+        self.assertEqual(existing.import_batch_id, self.old_batch.id)
 
         created = PartCrossCode.objects.get(product_no='PN2', part_number='CODE2')
         self.assertEqual(created.import_batch_id, self.new_batch.id)
         self.assertEqual(created.oe_brand, 'TOYOTA')
+
+    def test_all_duplicates_save_zero_and_history_counts_skipped(self):
+        service = ExcelImportService()
+        rows = [
+            {
+                'brand': 'NIBK',
+                'product_no': 'PN1',
+                'oe_brand': 'MITSUBISHI',
+                'part_number': 'CODE1',
+                'group_id': 'PN1',
+            },
+        ]
+        saved = service._insert_new_crosscode_parts_batched(rows, self.new_batch, bs=100)
+        self.assertEqual(saved, 0)
+        self.assertEqual(PartCrossCode.objects.count(), 1)
+        existing = PartCrossCode.objects.get(product_no='PN1', part_number='CODE1')
+        self.assertEqual(existing.import_batch_id, self.old_batch.id)
+
+        self.new_batch.total_rows = 51357
+        self.new_batch.parts_count = saved
+        self.new_batch.status = ImportBatch.STATUS_COMPLETED
+        self.assertEqual(self.new_batch.imported_records, 0)
+        self.assertEqual(self.new_batch.duplicate_skipped, 51357)
 
 
 class CrossCarsSourceLabelTests(TestCase):
@@ -636,3 +900,83 @@ class CrossCarsBulkSearchFormatTests(TestCase):
         rows_data, error = BulkSearchService.parse_upload(upload)
         self.assertIsNone(rows_data)
         self.assertIn('Brand Name', error)
+
+
+class CrossCodeBasketFamilyListTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email='basket@example.com', password='Test@123')
+        self.client.force_login(self.user)
+        self.part_a = PartCrossCode.objects.create(
+            brand='NIBK', product_no='P230', oe_brand='MIT', part_number='CODE-A', group_id='P230',
+        )
+        self.part_b = PartCrossCode.objects.create(
+            brand='NIBK', product_no='P230', oe_brand='TOYOTA', part_number='CODE-B', group_id='P230',
+        )
+        BasketServiceCrossCode.add_item(self.user, self.part_a, 'KANOYA', '230001')
+        BasketServiceCrossCode.add_item(self.user, self.part_b, 'KANOYA', '230001')
+
+    def test_basket_lists_family_rows_without_open_group_table(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'))
+        self.assertContains(response, 'id="basket-table"')
+        self.assertContains(response, '<th>Product Brand</th>')
+        self.assertContains(response, '<th>Product No</th>')
+        self.assertContains(response, '<th>Brand</th>')
+        self.assertContains(response, '<th>Code</th>')
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+        self.assertNotContains(response, '<th>Cross Brand</th>')
+        self.assertNotContains(response, '<th>Cross Code</th>')
+        self.assertNotContains(response, 'btn-view-group')
+        self.assertNotContains(response, '>Open<')
+
+    def test_basket_search_by_cross_code_shows_family_rows(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': '230001'})
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+        self.assertContains(response, 'matches found')
+
+    def test_basket_search_by_brand_code_finds_new_row(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': 'CODE-B'})
+        self.assertContains(response, 'CODE-B')
+        self.assertNotContains(response, 'CODE-A')
+
+    def test_basket_search_by_entered_brand_finds_new_rows(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': 'KANOYA'})
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+
+    def test_basket_wildcard_search_matches_entered_code(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': '230*'})
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+        self.assertContains(response, 'matches found')
+
+    def test_basket_wildcard_search_matches_catalog_code(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': 'CODE-*'})
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+
+    def test_basket_wildcard_search_matches_entered_brand(self):
+        response = self.client.get(reverse('inventory:basket_crosscode'), {'q': 'KAN*'})
+        self.assertContains(response, 'CODE-A')
+        self.assertContains(response, 'CODE-B')
+
+    def test_group_detail_redirects_to_family_list(self):
+        basket = BasketCrossCode.objects.get(brand='KANOYA', brand_number='230001')
+        response = self.client.get(
+            reverse('inventory:basket_group_detail_crosscode', kwargs={'basket_id': basket.pk}),
+        )
+        self.assertRedirects(response, reverse('inventory:basket_crosscode'))
+
+    def test_basket_suggestions_prefix_match_entered_codes(self):
+        BasketServiceCrossCode.add_item(self.user, self.part_a, 'OTHER', '230002')
+        suggestions = BasketServiceCrossCode.suggest_values(self.user, '23000')
+        self.assertEqual(suggestions, ['230001', '230002'])
+
+    def test_basket_suggestions_endpoint_returns_prefix_matches(self):
+        response = self.client.get(
+            reverse('inventory:basket_suggestions_crosscode'),
+            {'q': '23000'},
+        )
+        self.assertEqual(response.json()['suggestions'], ['230001'])
+

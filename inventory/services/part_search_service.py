@@ -8,6 +8,7 @@ from inventory.models import (
 from inventory.services.basket_service import BasketService, BasketServiceCrossCode
 from inventory.services.part_number_utils import (
     PART_NUMBER_SANITIZE_REGEX,
+    crosscode_wildcard_sql,
     crosscode_wildcard_to_like,
     filter_parts_exact,
     filter_parts_contains,
@@ -384,20 +385,17 @@ class PartSearchServiceCrossCode(PartSearchService):
 
         if '*' in query:
             like = crosscode_wildcard_to_like(query)
+            where_sql, params = crosscode_wildcard_sql(
+                like, ('code', 'product_no', 'brand', 'oe_brand'),
+            )
         else:
             like = f'{query}%'
+            where_sql, params = crosscode_wildcard_sql(like, ('code', 'product_no'))
 
         rows = (
             cls.part_model.objects
-            .extra(
-                where=[
-                    "(part_number_norm LIKE %s ESCAPE '\\' "
-                    "OR regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') "
-                    "LIKE %s ESCAPE '\\')"
-                ],
-                params=[like, PART_NUMBER_SANITIZE_REGEX, like],
-            )
-            .order_by('product_no', 'oe_brand', 'part_number')
+            .extra(where=[where_sql], params=params)
+            .order_by('oe_brand', 'part_number')
             .values('part_number', 'oe_brand', 'brand', 'product_no')
             [: max(limit * 8, 160)]
         )
@@ -405,60 +403,107 @@ class PartSearchServiceCrossCode(PartSearchService):
         candidates = []
         seen = set()
         for row in rows:
-            part_number = row.get('part_number') or ''
-            code_key = sanitize_part_number(part_number)
-            if not code_key:
+            item_key, item = cls._candidate_row(row)
+            if not item_key or item_key in seen:
                 continue
-            oe_brand = (row.get('oe_brand') or '').strip()
-            product_no = (row.get('product_no') or '').strip()
-            key = (code_key, oe_brand.upper(), product_no.upper())
-            if key in seen:
-                continue
-            seen.add(key)
-            candidates.append({
-                'part_number': part_number,
-                'oe_brand': oe_brand,
-                'brand': (row.get('brand') or '').strip(),
-                'product_no': product_no,
-            })
+            seen.add(item_key)
+            candidates.append(item)
             if len(candidates) >= limit:
                 break
         return candidates
 
     @classmethod
+    def _candidate_row(cls, row):
+        part_number = row.get('part_number') or ''
+        code_key = sanitize_part_number(part_number)
+        if not code_key:
+            return None, None
+        oe_brand = (row.get('oe_brand') or '').strip()
+        product_no = (row.get('product_no') or '').strip()
+        key = (code_key, oe_brand.casefold())
+        return key, {
+            'part_number': part_number,
+            'oe_brand': oe_brand,
+            'brand': (row.get('brand') or '').strip(),
+            'product_no': product_no,
+        }
+
+    @classmethod
     def needs_disambiguation(cls, raw_query):
         """
-        Decide whether interactive search must show Did you mean?
-
-        - Queries with "*" always ask (user picks a concrete Code).
-        - Unique exact match with no longer prefix variants → search immediately
-          (e.g. MR955727).
-        - Prefix / multiple matches → ask (e.g. D1086 → D1086, D10867418, …).
+        Unique Brand + Code (or exact Product No) opens the family page.
+        The same Code with different Brands shows Did you mean? first.
+        Prefix / wildcard matches still show Did you mean? when more than one pair exists.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
             return False, [], query
 
-        if '*' in query:
-            return True, cls.find_candidate_codes(query), query
-
-        candidates = cls.find_candidate_codes(query)
-        longer = [
-            item for item in candidates
-            if sanitize_part_number(item['part_number']) != query
-        ]
-        has_exact = (
-            filter_parts_exact(query, model=cls.part_model).exists()
-            or cls._product_no_exact_exists(query)
-        )
-
-        if has_exact and not longer:
+        if '*' not in query and cls._product_no_exact_exists(query):
             return False, [], query
 
-        if candidates:
-            return True, candidates, query
+        if '*' in query:
+            candidates = cls.find_candidate_codes(query)
+        else:
+            candidates = cls.find_exact_candidates([query])
+            if not candidates:
+                candidates = cls.find_candidate_codes(query)
 
+        if len(candidates) > 1:
+            return True, candidates, query
+        if len(candidates) == 1:
+            return False, [], candidates[0]['part_number']
         return False, [], query
+
+    @classmethod
+    def find_exact_candidates(cls, keys, limit=200):
+        """Exact Code / Product No matches only (no prefix, no family expand)."""
+        candidates = []
+        seen = set()
+        search_keys = []
+        for raw in keys or []:
+            key = sanitize_part_number(raw)
+            if key and key not in search_keys:
+                search_keys.append(key)
+
+        values = ('part_number', 'oe_brand', 'brand', 'product_no')
+        for key in search_keys:
+            rows = list(
+                cls.part_model.objects.extra(
+                    where=["part_number_norm = %s"],
+                    params=[key],
+                ).order_by('oe_brand', 'part_number').values(*values)[:limit]
+            )
+            if not rows:
+                rows = list(
+                    cls.part_model.objects.extra(
+                        where=[
+                            "regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"
+                        ],
+                        params=[PART_NUMBER_SANITIZE_REGEX, key],
+                    ).order_by('oe_brand', 'part_number').values(*values)[:limit]
+                )
+            for row in rows:
+                item_key, item = cls._candidate_row(row)
+                if not item_key or item_key in seen:
+                    continue
+                seen.add(item_key)
+                candidates.append(item)
+                if len(candidates) >= limit:
+                    return candidates
+        return candidates
+
+    @classmethod
+    def candidates_from_bulk_rows(cls, rows_data, limit=200):
+        """Did you mean? rows from a bulk upload (exact matches only)."""
+        keys = []
+        for row in rows_data or []:
+            if row.get('bulk_miss'):
+                continue
+            key = sanitize_part_number(row.get('part_number') or '')
+            if key:
+                keys.append(key)
+        return cls.find_exact_candidates(keys, limit=limit)
 
     @classmethod
     def expand_product_families(cls, parts):
@@ -499,19 +544,28 @@ class PartSearchServiceCrossCode(PartSearchService):
         )
 
     @classmethod
-    def build_results(cls, query):
+    def build_results(cls, query, oe_brand=None):
         """Exact Code / Product No match, expanded to full product families."""
         query = sanitize_crosscode_search(query, keep_star=False)
+        oe_brand = (oe_brand or '').strip()
         if not query:
             return []
 
         matching_parts = list(filter_parts_exact(query, model=cls.part_model))
-        product_matches = list(
-            cls.part_model.objects.extra(
-                where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
-                params=[PART_NUMBER_SANITIZE_REGEX, query],
-            )[:5000]
-        )
+        if oe_brand:
+            brand_key = oe_brand.casefold()
+            matching_parts = [
+                part for part in matching_parts
+                if (part.oe_brand or '').strip().casefold() == brand_key
+            ]
+            product_matches = []
+        else:
+            product_matches = list(
+                cls.part_model.objects.extra(
+                    where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
+                    params=[PART_NUMBER_SANITIZE_REGEX, query],
+                )[:5000]
+            )
 
         by_id = {}
         for part in matching_parts + product_matches:

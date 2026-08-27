@@ -501,6 +501,13 @@ class ImportBatch(models.Model):
         return self.total_rows
 
     @property
+    def duplicate_skipped(self):
+        """Rows in the file that were not added because they already exist."""
+        if self.import_type != self.TYPE_PARTS_CROSSCODE:
+            return 0
+        return max((self.total_rows or 0) - (self.parts_count or 0), 0)
+
+    @property
     def section_label(self):
         """Human label for which Import section this file came from."""
         return self.get_import_type_display()
@@ -536,6 +543,9 @@ class ImportBatch(models.Model):
         elif self.import_type == self.TYPE_PARTS_CROSSCODE:
             if self.parts_count:
                 stats.append(f'{self.parts_count:,} part{"s" if self.parts_count != 1 else ""} imported')
+            skipped = self.duplicate_skipped
+            if skipped:
+                stats.append(f'{skipped:,} duplicate skipped')
         if self.error_count:
             label = 'warnings' if self.status == self.STATUS_COMPLETED else 'issues'
             stats.append(f'{self.error_count:,} {label}')

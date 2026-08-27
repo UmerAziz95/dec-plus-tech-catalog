@@ -9,7 +9,7 @@
     <div class="search-tools-grid">
         <section class="search-tools-block" id="part-search-panel">
             <h2 class="panel-title">Search by part number</h2>
-            <p class="panel-subtitle">Exact match by Code or Product No (e.g. PN0150W, 4605A049).</p>
+            <p class="panel-subtitle">Search by Code, Product No, or Brand. Use * as a wildcard. A unique Code opens the family; the same Code with different Brands shows Did you mean? first.</p>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
                     <div class="search-bar search-autocomplete" data-suggestions-url="{{ part_search_suggestions_url }}">
@@ -20,7 +20,7 @@
                             type="text"
                             name="q"
                             class="form-input"
-                            placeholder="Enter Code or Product No..."
+                            placeholder="Enter Code, Product No, or Brand (use * as wildcard)..."
                             value="{{ query }}"
                             autocomplete="off"
                             autofocus
@@ -80,31 +80,34 @@
 
     <section class="search-results-panel" id="search-results-panel">
         {% if did_you_mean %}
-            <div class="card panel-card did-you-mean-card">
-                <h3 class="panel-title" style="margin-bottom: var(--space-sm);">Did you mean?</h3>
-                <p class="empty-state-text" style="margin-bottom: var(--space-md);">
-                    Select a Product No + Brand + Code to continue searching for
+            <div class="did-you-mean-block">
+                <h3 class="panel-title did-you-mean-title">Did you mean?</h3>
+                <p class="empty-state-text did-you-mean-copy">
+                    {% if did_you_mean_bulk %}
+                    Select a Code + Brand from the uploaded file to continue searching.
+                    {% else %}
+                    Select a Code + Brand to continue searching for
                     "<strong>{{ search_query }}</strong>".
+                    {% endif %}
                 </p>
+                <div class="card panel-card did-you-mean-card">
                 {% if did_you_mean_candidates %}
                 <div class="table-wrapper">
                     <table class="data-table" id="did-you-mean-table">
                         <thead>
                             <tr>
-                                <th>Product No</th>
-                                <th>Brand</th>
                                 <th>Code</th>
+                                <th>Brand</th>
                                 <th style="width: 140px;"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for item in did_you_mean_candidates %}
                             <tr>
-                                <td><span class="group-id-text">{{ item.product_no|default:"—" }}</span></td>
-                                <td><span class="brand-name">{{ item.oe_brand|default:"—" }}</span></td>
                                 <td><span class="part-number">{{ item.part_number }}</span></td>
+                                <td><span class="brand-name">{{ item.oe_brand|default:"—" }}</span></td>
                                 <td>
-                                    <a href="?q={{ item.part_number|urlencode }}&exact=1#search-results-panel" class="btn btn-primary btn-sm">Search</a>
+                                    <a href="?q={{ item.part_number|urlencode }}&exact=1{% if item.oe_brand %}&oe_brand={{ item.oe_brand|urlencode }}{% endif %}#search-results-panel" class="btn btn-primary btn-sm">Search</a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -112,8 +115,9 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="empty-state-text">No matching Product No + Brand + Code rows were found for "<strong>{{ search_query }}</strong>".</p>
+                <p class="empty-state-text">No matching Code + Brand rows were found for "<strong>{{ search_query }}</strong>".</p>
                 {% endif %}
+                </div>
             </div>
         {% elif bulk_has_searched and not searched %}
             {% if bulk_results %}
@@ -232,7 +236,7 @@
                     {% endif %}
                 </div>
                 <div class="results-summary-actions">
-                    <a href="{{ part_search_export_url }}?q={{ query|urlencode }}" class="btn btn-secondary btn-lg search-export-btn">
+                    <a href="{{ part_search_export_url }}?{{ family_query_base }}" class="btn btn-secondary btn-lg search-export-btn">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         <span>Export all to Excel</span>
                     </a>
@@ -247,14 +251,20 @@
                     {% csrf_token %}
                     <input type="hidden" name="q" value="{{ query }}">
                     <input type="hidden" name="page" value="{{ page_obj.number }}">
+                    {% if exact_search %}
+                    <input type="hidden" name="exact" value="1">
+                    {% endif %}
+                    {% if oe_brand_filter %}
+                    <input type="hidden" name="oe_brand" value="{{ oe_brand_filter }}">
+                    {% endif %}
                     <div id="search-basket-feedback" class="feedback-stack" aria-live="polite"></div>
                     <div class="basket-assign-fields">
                         <div class="form-group">
-                            <label class="form-label" for="search-basket-brand">Cross Brand <span class="required-mark">*</span></label>
+                            <label class="form-label" for="search-basket-brand">Brand <span class="required-mark">*</span></label>
                             <input type="text" name="brand" id="search-basket-brand" class="form-input" placeholder="e.g., Kanoya, Brembo..." required>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="search-basket-brand-number">Cross Code <span class="required-mark">*</span></label>
+                            <label class="form-label" for="search-basket-brand-number">Code <span class="required-mark">*</span></label>
                             <input type="text" name="brand_number" id="search-basket-brand-number" class="form-input" placeholder="e.g., C13X20" required>
                         </div>
                         <button type="submit" class="btn btn-primary btn-lg basket-assign-submit" id="search-basket-submit">
@@ -262,7 +272,7 @@
                             <span>Add all results to basket</span>
                         </button>
                     </div>
-                    <p class="basket-assign-note">Creates one basket group for this Cross Brand + Cross Code, and adds every unique Brand + Code from the matched product family (same as the Excel sample).</p>
+                    <p class="basket-assign-note">Adds every unique Brand + Code from the matched product family to your basket.</p>
                 </form>
             </div>
 
@@ -273,7 +283,9 @@
                             <tr>
                                 <th>#</th>
                                 <th>Product Brand</th>
-                                <th>Product No | Brand | Code</th>
+                                <th>Product No</th>
+                                <th>Brand</th>
+                                <th>Code</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -282,15 +294,9 @@
                             <tr class="result-row">
                                 <td class="row-number">{{ forloop.counter0|add:page_obj.start_index }}</td>
                                 <td><span class="brand-name">{{ item.part.brand|default:"—" }}</span></td>
-                                <td class="brand-code-cell">
-                                    <div class="brand-code-row-line">
-                                        <span class="group-id-text">{{ item.part.product_no|default:"—" }}</span>
-                                        <span class="results-divider">|</span>
-                                        <span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span>
-                                        <span class="results-divider">|</span>
-                                        <span class="part-tag">{{ item.part.part_number }}</span>
-                                    </div>
-                                </td>
+                                <td><span class="group-id-text">{{ item.part.product_no|default:"—" }}</span></td>
+                                <td><span class="brand-name">{{ item.part.oe_brand|default:"—" }}</span></td>
+                                <td><span class="part-tag">{{ item.part.part_number }}</span></td>
                                 <td class="actions-cell">
                                     <button
                                         type="button"
@@ -318,10 +324,10 @@
             <div class="pagination-wrapper">
                 <div class="pagination">
                     {% if page_obj.has_previous %}
-                    <a href="?q={{ query }}&page=1" class="page-link" title="First page">
+                    <a href="?{{ family_query_base }}&page=1#search-results-panel" class="page-link" title="First page">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
                     </a>
-                    <a href="?q={{ query }}&page={{ page_obj.previous_page_number }}" class="page-link">
+                    <a href="?{{ family_query_base }}&page={{ page_obj.previous_page_number }}#search-results-panel" class="page-link">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
                         Prev
                     </a>
@@ -331,20 +337,20 @@
                         {% if page_obj.number == num %}
                         <span class="page-link active">{{ num }}</span>
                         {% elif num > page_obj.number|add:"-4" and num < page_obj.number|add:"4" %}
-                        <a href="?q={{ query }}&page={{ num }}" class="page-link">{{ num }}</a>
+                        <a href="?{{ family_query_base }}&page={{ num }}#search-results-panel" class="page-link">{{ num }}</a>
                         {% elif num == 1 or num == page_obj.paginator.num_pages %}
-                        <a href="?q={{ query }}&page={{ num }}" class="page-link">{{ num }}</a>
+                        <a href="?{{ family_query_base }}&page={{ num }}#search-results-panel" class="page-link">{{ num }}</a>
                         {% elif num == page_obj.number|add:"-4" or num == page_obj.number|add:"4" %}
                         <span class="page-dots">...</span>
                         {% endif %}
                     {% endfor %}
 
                     {% if page_obj.has_next %}
-                    <a href="?q={{ query }}&page={{ page_obj.next_page_number }}" class="page-link">
+                    <a href="?{{ family_query_base }}&page={{ page_obj.next_page_number }}#search-results-panel" class="page-link">
                         Next
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
                     </a>
-                    <a href="?q={{ query }}&page={{ page_obj.paginator.num_pages }}" class="page-link" title="Last page">
+                    <a href="?{{ family_query_base }}&page={{ page_obj.paginator.num_pages }}#search-results-panel" class="page-link" title="Last page">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
                     </a>
                     {% endif %}
@@ -478,8 +484,27 @@
         gap: 0;
     }
 
-    .search-results-panel {
-        min-width: 0;
+    .did-you-mean-block {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .did-you-mean-title {
+        width: 100%;
+        margin: 0 0 var(--space-sm);
+        text-align: left;
+    }
+
+    .did-you-mean-copy {
+        width: 100%;
+        margin: 0 0 var(--space-md);
+        text-align: left;
+    }
+
+    .did-you-mean-block .did-you-mean-card {
         width: 100%;
     }
 

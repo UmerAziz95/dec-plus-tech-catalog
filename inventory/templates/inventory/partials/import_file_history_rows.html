@@ -27,7 +27,12 @@
                 {% endif %}
             </td>
             <td><span class="file-history-section">{{ batch.section_label }}</span></td>
-            <td><span class="file-history-count">{{ batch.imported_records|default:0 }}</span></td>
+            <td>
+                <span class="file-history-count">{{ batch.imported_records|default:0 }}</span>
+                {% if batch.duplicate_skipped %}
+                <div class="file-history-skipped">{{ batch.duplicate_skipped }} duplicate skipped</div>
+                {% endif %}
+            </td>
             <td><span class="file-history-count">{{ batch.total_rows|default:0 }}</span></td>
             <td>
                 {% if batch.is_deleting %}

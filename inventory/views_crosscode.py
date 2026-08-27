@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from urllib.parse import urlencode
 
-from .models import BasketCrossCode, BasketItemCrossCode, CarCrossCode, PartCrossCode
+from .models import BasketItemCrossCode, CarCrossCode, PartCrossCode
 from .services.basket_service import BasketService, BasketServiceCrossCode
 from .services.brand_names_service import BrandNamesServiceCrossCode
 from .services.bulk_search_service import BulkSearchServiceCrossCode
@@ -38,23 +38,34 @@ def _redirect_to_next(request, fallback_view_name):
 # SEARCH PARTS NUMBER
 # ============================================
 
-def _complete_bulk_search_crosscode(request, rows_data):
-    bulk_results, bulk_summary, error_message = BulkSearchServiceCrossCode.run_bulk_search(
-        request.user,
-        rows_data,
-        save_to_basket=True,
-    )
-    if error_message:
-        messages.error(request, error_message)
-        return redirect('inventory:search_part_crosscode')
-    request.session['bulk_search_missed_rows_crosscode'] = bulk_summary.get('missed_rows', [])
-    request.session['bulk_search_export_rows_crosscode'] = bulk_results
-    request.session['bulk_search_summary_crosscode'] = bulk_summary
-    messages.success(
-        request,
-        f'Bulk search complete: {bulk_summary.get("added_to_basket", 0)} item(s) added to basket.',
-    )
-    return redirect(f"{reverse('inventory:search_part_crosscode')}?bulk_done=1#search-results-panel")
+def _did_you_mean_from_bulk_upload(request, rows_data):
+    """First bulk step: unique Brand + Code table, then row Search."""
+    missed = sum(1 for row in rows_data if row.get('bulk_miss'))
+    candidates = PartSearchServiceCrossCode.candidates_from_bulk_rows(rows_data)
+    if missed:
+        messages.warning(
+            request,
+            f'{missed} row(s) with * were skipped. Bulk search is exact match only.',
+        )
+    if not candidates:
+        messages.warning(
+            request,
+            'No matching Brand + Code rows were found in the uploaded file.',
+        )
+    return candidates
+
+
+def _crosscode_family_params(raw_query, exact=False, oe_brand='', page=''):
+    params = {}
+    if raw_query:
+        params['q'] = raw_query
+    if exact:
+        params['exact'] = '1'
+    if oe_brand:
+        params['oe_brand'] = oe_brand
+    if page:
+        params['page'] = page
+    return params
 
 
 @login_required
@@ -62,6 +73,7 @@ def search_part_crosscode_view(request):
     """Cross Code part number search and bulk Excel search on one page."""
     raw_query = request.GET.get('q', '').strip()
     force_exact = request.GET.get('exact') == '1'
+    oe_brand_filter = request.GET.get('oe_brand', '').strip()
     search_query = sanitize_crosscode_search(raw_query, keep_star=True)
     results = []
     total_cars = 0
@@ -71,6 +83,7 @@ def search_part_crosscode_view(request):
     bulk_summary = None
     did_you_mean = False
     did_you_mean_candidates = []
+    did_you_mean_bulk = False
 
     if request.GET.get('bulk_done') and request.session.get('bulk_search_export_rows_crosscode') is not None:
         bulk_results = request.session.get('bulk_search_export_rows_crosscode') or []
@@ -84,17 +97,24 @@ def search_part_crosscode_view(request):
         elif not rows_data:
             messages.warning(request, 'The uploaded file did not contain any valid rows.')
         else:
-            return _complete_bulk_search_crosscode(request, rows_data)
+            did_you_mean = True
+            did_you_mean_bulk = True
+            did_you_mean_candidates = _did_you_mean_from_bulk_upload(request, rows_data)
+            search_query = 'bulk upload'
 
-    if search_query and not force_exact:
+    if search_query and not force_exact and not did_you_mean_bulk:
         needs, candidates, search_query = PartSearchServiceCrossCode.needs_disambiguation(raw_query)
         if needs:
             did_you_mean = True
             did_you_mean_candidates = candidates
         else:
-            results = PartSearchServiceCrossCode.build_results(raw_query)
+            results = PartSearchServiceCrossCode.build_results(
+                search_query, oe_brand=oe_brand_filter,
+            )
     elif search_query and force_exact:
-        results = PartSearchServiceCrossCode.build_results(raw_query)
+        results = PartSearchServiceCrossCode.build_results(
+            raw_query, oe_brand=oe_brand_filter,
+        )
 
     if results:
         total_cars = len(results)
@@ -122,6 +142,12 @@ def search_part_crosscode_view(request):
         'searched': bool(search_query),
         'did_you_mean': did_you_mean,
         'did_you_mean_candidates': did_you_mean_candidates,
+        'did_you_mean_bulk': did_you_mean_bulk,
+        'exact_search': force_exact,
+        'oe_brand_filter': oe_brand_filter,
+        'family_query_base': urlencode(
+            _crosscode_family_params(raw_query, force_exact, oe_brand_filter)
+        ) if raw_query else '',
         'bulk_results': bulk_results,
         'bulk_has_searched': bulk_has_searched,
         'bulk_result_count': len(bulk_results),
@@ -173,12 +199,13 @@ def bulk_search_missed_export_crosscode_view(request):
 @login_required
 def part_search_export_crosscode_view(request):
     raw_query = request.GET.get('q', '').strip()
+    oe_brand_filter = request.GET.get('oe_brand', '').strip()
     search_query = sanitize_part_number(raw_query)
     if not search_query:
         messages.error(request, 'Run a part number search before exporting.')
         return redirect('inventory:search_part_crosscode')
 
-    results = PartSearchServiceCrossCode.build_results(raw_query)
+    results = PartSearchServiceCrossCode.build_results(raw_query, oe_brand=oe_brand_filter)
     if not results:
         messages.error(request, 'No vehicles to export for this search.')
         return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode({'q': raw_query})}")
@@ -215,16 +242,23 @@ def add_search_results_to_basket_crosscode(request):
     search_query = sanitize_part_number(raw_query)
     brand = request.POST.get('brand', '').strip()
     brand_number = request.POST.get('brand_number', '').strip()
+    oe_brand_filter = request.POST.get('oe_brand', '').strip()
     page = request.POST.get('page', '').strip()
 
     if not search_query or not brand or not brand_number:
         messages.error(request, 'Search query, brand name, and brand number are required.')
         return redirect('inventory:search_part_crosscode')
 
-    results = PartSearchServiceCrossCode.build_results(raw_query)
+    results = PartSearchServiceCrossCode.build_results(raw_query, oe_brand=oe_brand_filter)
+    family_params = _crosscode_family_params(
+        raw_query,
+        exact=request.POST.get('exact') == '1',
+        oe_brand=oe_brand_filter,
+        page=page if page.isdigit() else '',
+    )
     if not results:
         messages.error(request, 'No search results are available to add to the basket.')
-        return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode({'q': raw_query})}")
+        return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode(family_params)}")
 
     added_count = PartSearchServiceCrossCode.add_results_to_basket(
         request.user,
@@ -240,9 +274,12 @@ def add_search_results_to_basket_crosscode(request):
     else:
         messages.warning(request, 'All matching search results are already in your basket.')
 
-    params = {'q': raw_query}
-    if page.isdigit():
-        params['page'] = page
+    params = _crosscode_family_params(
+        raw_query,
+        exact=request.POST.get('exact') == '1',
+        oe_brand=oe_brand_filter,
+        page=page if page.isdigit() else '',
+    )
     return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode(params)}")
 
 
@@ -421,11 +458,10 @@ def clear_basket_crosscode_view(request):
 def basket_crosscode_view(request):
     query = BasketServiceCrossCode.clean_search_query(request.GET.get('q', ''))
     total_item_count = BasketServiceCrossCode.count_for_user(request.user)
-    basket_groups = BasketServiceCrossCode.filter_basket_groups(request.user, query)
-    total_group_count = len(BasketServiceCrossCode.get_user_basket_groups(request.user))
+    items = BasketServiceCrossCode.filter_items_queryset(request.user, query)
 
     page_number = request.GET.get('page', 1)
-    paginator = Paginator(basket_groups, BasketServiceCrossCode.BASKET_PAGE_SIZE)
+    paginator = Paginator(items, BasketServiceCrossCode.BASKET_PAGE_SIZE)
     page_obj = paginator.get_page(page_number)
 
     search_params = {'q': query} if query else {}
@@ -436,15 +472,23 @@ def basket_crosscode_view(request):
         'page_obj': page_obj,
         'query': query,
         'filtered_count': paginator.count,
-        'total_basket_count': total_group_count,
         'total_item_count': total_item_count,
         'basket_count': BasketService.count_for_user(request.user),
         'basket_count_crosscode': total_item_count,
         'has_results': paginator.count > 0,
         'searched': bool(query),
         'search_query_string': search_query_string,
+        'basket_search_suggestions_url': reverse('inventory:basket_suggestions_crosscode'),
     }
     return render(request, 'inventory/crosscode/basket_crosscode.html', context)
+
+
+@login_required
+def basket_suggestions_crosscode_view(request):
+    query = request.GET.get('q', '')
+    return JsonResponse({
+        'suggestions': BasketServiceCrossCode.suggest_values(request.user, query),
+    })
 
 
 @login_required
@@ -453,34 +497,10 @@ def basket_group_detail_crosscode_view(request, basket_id):
         messages.error(request, 'This brand group is not in your basket.')
         return redirect('inventory:basket_crosscode')
 
-    active_basket = get_object_or_404(BasketCrossCode, pk=basket_id)
-    basket_groups = BasketServiceCrossCode.get_user_basket_groups(request.user)
-
-    query = BasketServiceCrossCode.clean_search_query(request.GET.get('q', ''))
-    group_total_count = BasketServiceCrossCode.get_group_items_queryset(request.user, basket_id).count()
-    group_items = BasketServiceCrossCode.filter_group_items_queryset(request.user, basket_id, query)
-
-    paginator = Paginator(group_items, BasketServiceCrossCode.BASKET_PAGE_SIZE)
-    page_obj = paginator.get_page(request.GET.get('page', 1))
-
-    search_params = {'q': query} if query else {}
-    search_query_string = urlencode(search_params)
-
-    context = {
-        'active_page': 'basket_crosscode',
-        'active_basket': active_basket,
-        'basket_groups': basket_groups,
-        'page_obj': page_obj,
-        'group_total_count': group_total_count,
-        'filtered_count': paginator.count,
-        'has_results': paginator.count > 0,
-        'searched': bool(query),
-        'query': query,
-        'search_query_string': search_query_string,
-        'basket_count': BasketService.count_for_user(request.user),
-        'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
-    }
-    return render(request, 'inventory/crosscode/basket_group_detail_crosscode.html', context)
+    url = reverse('inventory:basket_crosscode')
+    if request.GET:
+        url = f'{url}?{request.GET.urlencode()}'
+    return redirect(url)
 
 
 # ============================================
@@ -504,8 +524,17 @@ def parts_catalog_crosscode_view(request):
         'has_results': paginator.count > 0,
         'basket_count': BasketService.count_for_user(request.user),
         'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
+        'parts_search_suggestions_url': reverse('inventory:parts_catalog_suggestions_crosscode'),
     }
     return render(request, 'inventory/crosscode/parts_catalog_crosscode.html', context)
+
+
+@login_required
+def parts_catalog_suggestions_crosscode_view(request):
+    query = request.GET.get('q', '')
+    return JsonResponse({
+        'suggestions': PartsCatalogServiceCrossCode.suggest_values(query),
+    })
 
 
 # ============================================
@@ -580,21 +609,30 @@ def manual_add_part_crosscode_view(request):
 @login_required
 def brand_names_crosscode_view(request):
     query = request.GET.get('q', '').strip()
-    brand_field = (request.GET.get('field') or BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND).strip().lower()
-    if brand_field not in BrandNamesServiceCrossCode.FIELD_MAP:
-        brand_field = BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND
-    brands = BrandNamesServiceCrossCode.list_brands(query, field=brand_field)
+    queryset = BrandNamesServiceCrossCode.list_rows(query)
+    page_number = request.GET.get('page', 1)
+    paginator = Paginator(queryset, 25)
+    page_obj = paginator.get_page(page_number)
 
     context = {
         'active_page': 'brand_names_crosscode',
         'query': query,
-        'brand_field': brand_field,
-        'brands': brands,
-        'has_results': bool(brands),
+        'page_obj': page_obj,
+        'total_rows': paginator.count,
+        'has_results': paginator.count > 0,
         'basket_count': BasketService.count_for_user(request.user),
         'basket_count_crosscode': BasketServiceCrossCode.count_for_user(request.user),
+        'brand_search_suggestions_url': reverse('inventory:brand_names_suggestions_crosscode'),
     }
     return render(request, 'inventory/crosscode/brand_names_crosscode.html', context)
+
+
+@login_required
+def brand_names_suggestions_crosscode_view(request):
+    query = request.GET.get('q', '')
+    return JsonResponse({
+        'suggestions': BrandNamesServiceCrossCode.suggest_names(query),
+    })
 
 
 @login_required
@@ -602,19 +640,22 @@ def brand_names_crosscode_view(request):
 def brand_rename_crosscode_view(request):
     old_name = request.POST.get('old_name', '')
     new_name = request.POST.get('new_name', '')
-    brand_field = (request.POST.get('field') or BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND).strip().lower()
-    ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand(
-        old_name, new_name, field=brand_field,
-    )
-    label = 'Product Brand' if brand_field == BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND else 'Brand'
+    ok, error, updated_count = BrandNamesServiceCrossCode.rename_brand(old_name, new_name)
     if ok:
         messages.success(
             request,
-            f'Renamed {label} "{old_name}" to "{new_name}" on {updated_count} Cross Code row(s).',
+            f'Renamed "{old_name}" to "{new_name}" on {updated_count} Cross Code row(s).',
         )
     else:
         messages.error(request, error)
     redirect_url = reverse('inventory:brand_names_crosscode')
-    if brand_field != BrandNamesServiceCrossCode.FIELD_PRODUCT_BRAND:
-        redirect_url = f'{redirect_url}?field={brand_field}'
+    params = {}
+    query = request.POST.get('q', '').strip()
+    page = request.POST.get('page', '').strip()
+    if query:
+        params['q'] = query
+    if page:
+        params['page'] = page
+    if params:
+        redirect_url = f'{redirect_url}?{urlencode(params)}'
     return redirect(redirect_url)

@@ -14,6 +14,22 @@ from inventory.models import (
 from inventory.services.spreadsheet_loader import load_workbook
 
 MAX_IMPORT_ERRORS = 2000
+_URL_PRODUCT_BRAND_RE = re.compile(r'^(https?://|www\.)', re.IGNORECASE)
+
+
+def normalize_crosscode_product_brand(value):
+    """
+    Product Brand in the Jikiu Cross Code file is a catalogue URL.
+    Store the actual product brand name instead.
+    """
+    text = str(value or '').strip()
+    if not text:
+        return text
+    if 'jikiu' in text.lower():
+        return 'JIKIU'
+    if _URL_PRODUCT_BRAND_RE.match(text):
+        return 'JIKIU'
+    return text
 
 
 def _batch_size():
@@ -316,7 +332,7 @@ class ExcelImportService:
             return
 
         self._update_progress(batch, 'Saving Cross Code references…')
-        saved = self._upsert_crosscode_parts_batched(parsed['rows'], batch, batch_size)
+        saved = self._insert_new_crosscode_parts_batched(parsed['rows'], batch, batch_size)
         self._finalize_completed(
             batch,
             total_rows=parsed['total_rows'],
@@ -366,7 +382,11 @@ class ExcelImportService:
         product_nos = set()
         total_rows = 0
         for row_number, row in enumerate(sheet.iter_rows(min_row=start_row, values_only=True), start=start_row):
-            product_brand = self._sanitize_text(row[indices['product_brand']] if len(row) > indices['product_brand'] else '')
+            product_brand_raw = self._sanitize_text(row[indices['product_brand']] if len(row) > indices['product_brand'] else '')
+            product_brand = (
+                None if product_brand_raw is None
+                else normalize_crosscode_product_brand(product_brand_raw)
+            )
             product_no = self._sanitize_text(row[indices['product_no']] if len(row) > indices['product_no'] else '')
             oe_brand = self._sanitize_text(row[indices['oe_brand']] if len(row) > indices['oe_brand'] else '')
             code = self._sanitize_text(row[indices['code']] if len(row) > indices['code'] else '')
@@ -400,8 +420,8 @@ class ExcelImportService:
             'total_rows': total_rows,
         }
 
-    def _upsert_crosscode_parts_batched(self, rows, batch, bs):
-        """Create new Cross Code rows, or update matching ones (no skip-on-duplicate)."""
+    def _insert_new_crosscode_parts_batched(self, rows, batch, bs):
+        """Insert Cross Code rows that do not already exist. Duplicates are skipped."""
         total = len(rows)
         saved = 0
         for start in range(0, total, bs):
@@ -410,24 +430,18 @@ class ExcelImportService:
             product_nos = {row['product_no'] for row in chunk}
             codes = {row['part_number'] for row in chunk}
             existing = {
-                (item.brand, item.product_no, item.oe_brand, item.part_number): item
+                (item.brand, item.product_no, item.oe_brand, item.part_number)
                 for item in PartCrossCode.objects.filter(
                     product_no__in=product_nos,
                     part_number__in=codes,
-                )
+                ).only('brand', 'product_no', 'oe_brand', 'part_number')
             }
             to_create = []
-            to_update = []
             for row in chunk:
                 key = (row['brand'], row['product_no'], row['oe_brand'], row['part_number'])
-                existing_item = existing.get(key)
-                if existing_item is not None:
-                    existing_item.group_id = row['group_id']
-                    existing_item.import_batch = batch
-                    to_update.append(existing_item)
+                if key in existing:
                     continue
-                # Reserve the key so the same chunk cannot create duplicates.
-                existing[key] = None
+                existing.add(key)
                 to_create.append(PartCrossCode(
                     group_id=row['group_id'],
                     brand=row['brand'],
@@ -436,13 +450,6 @@ class ExcelImportService:
                     part_number=row['part_number'],
                     import_batch=batch,
                 ))
-            if to_update:
-                PartCrossCode.objects.bulk_update(
-                    to_update,
-                    ['group_id', 'import_batch'],
-                    batch_size=bs,
-                )
-                saved += len(to_update)
             if to_create:
                 with transaction.atomic():
                     PartCrossCode.objects.bulk_create(to_create, batch_size=bs)

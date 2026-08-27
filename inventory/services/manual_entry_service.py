@@ -120,6 +120,8 @@ class ManualEntryServiceCrossCode:
     @classmethod
     def add_cross_code_row(cls, product_brand, product_no, oe_brand, code):
         product_brand = cls.clean_text(product_brand, 100)
+        from inventory.services.import_services import normalize_crosscode_product_brand
+        product_brand = normalize_crosscode_product_brand(product_brand)
         product_no = cls.clean_text(product_no, 100)
         oe_brand = cls.clean_text(oe_brand, 100)
         code = cls.clean_text(code, 100)
