@@ -376,11 +376,12 @@ class PartSearchServiceCrossCode(PartSearchService):
     @classmethod
     def find_candidate_codes(cls, raw_query, limit=40):
         """
-        Brand + Code pairs matching a wildcard (*) or prefix query.
+        Distinct Codes matching a wildcard (*) or prefix query.
         Used for the Did you mean? step.
 
         Prefix matches Code only. Wildcard matches Code, Brand, and OE Brand.
         Product No is not used, so unrelated family OE codes are not listed.
+        The same Code under multiple Brands is listed once.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
@@ -406,7 +407,7 @@ class PartSearchServiceCrossCode(PartSearchService):
         candidates = []
         seen = set()
         for row in rows:
-            item_key, item = cls._candidate_row(row)
+            item_key, item = cls._candidate_row(row, unique_by='code')
             if not item_key or item_key in seen:
                 continue
             seen.add(item_key)
@@ -416,14 +417,17 @@ class PartSearchServiceCrossCode(PartSearchService):
         return candidates
 
     @classmethod
-    def _candidate_row(cls, row):
+    def _candidate_row(cls, row, unique_by='code_brand'):
         part_number = row.get('part_number') or ''
         code_key = sanitize_part_number(part_number)
         if not code_key:
             return None, None
         oe_brand = (row.get('oe_brand') or '').strip()
         product_no = (row.get('product_no') or '').strip()
-        key = (code_key, oe_brand.casefold())
+        if unique_by == 'code':
+            key = code_key
+        else:
+            key = (code_key, oe_brand.casefold())
         return key, {
             'part_number': part_number,
             'oe_brand': oe_brand,
@@ -434,9 +438,10 @@ class PartSearchServiceCrossCode(PartSearchService):
     @classmethod
     def needs_disambiguation(cls, raw_query):
         """
-        Unique Brand + Code (or exact Product No) opens the family page.
-        The same Code with different Brands shows Did you mean? first.
-        Prefix / wildcard matches still show Did you mean? when more than one pair exists.
+        Exact Product No opens the family. An exact unique Code opens the
+        family even if several Brands share that Code. Prefix, wildcard, or
+        more than one distinct Code shows Did you mean first — including a
+        single longer Code (MR95572 vs MR955727).
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
@@ -445,18 +450,18 @@ class PartSearchServiceCrossCode(PartSearchService):
         if '*' not in query and cls._product_no_exact_exists(query):
             return False, [], query
 
-        if '*' in query:
-            candidates = cls.find_candidate_codes(query)
-        else:
-            candidates = cls.find_exact_candidates([query])
-            if not candidates:
-                candidates = cls.find_candidate_codes(query)
+        candidates = cls.find_candidate_codes(query)
+        if not candidates:
+            return False, [], query
 
-        if len(candidates) > 1:
-            return True, candidates, query
-        if len(candidates) == 1:
+        exact_unique_code = (
+            '*' not in query
+            and len(candidates) == 1
+            and sanitize_part_number(candidates[0]['part_number']) == query
+        )
+        if exact_unique_code:
             return False, [], candidates[0]['part_number']
-        return False, [], query
+        return True, candidates, query
 
     @classmethod
     def find_exact_candidates(cls, keys, limit=200):
