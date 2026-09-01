@@ -171,7 +171,7 @@ class CrossCodeSearchRulesTests(TestCase):
         self.assertIn('D1086', norms)
         self.assertIn('43022XA01', norms)
 
-    def test_product_no_candidates_include_brand_and_code(self):
+    def test_product_no_prefix_does_not_list_unrelated_family_codes(self):
         PartCrossCode.objects.create(
             brand='NIBK', product_no='PN9001', oe_brand='TOYOTA', part_number='CODE9001A', group_id='PN9001',
         )
@@ -179,12 +179,63 @@ class CrossCodeSearchRulesTests(TestCase):
             brand='NIBK', product_no='PN9001', oe_brand='HONDA', part_number='CODE9001B', group_id='PN9001',
         )
         candidates = PartSearchServiceCrossCode.find_candidate_codes('PN9001')
-        pairs = {
-            (c['oe_brand'], sanitize_part_number(c['part_number']))
-            for c in candidates
-        }
-        self.assertIn(('TOYOTA', 'CODE9001A'), pairs)
-        self.assertIn(('HONDA', 'CODE9001B'), pairs)
+        norms = {sanitize_part_number(c['part_number']) for c in candidates}
+        self.assertNotIn('CODE9001A', norms)
+        self.assertNotIn('CODE9001B', norms)
+
+    def test_prefix_did_you_mean_only_lists_matching_codes(self):
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='BANDO',
+            part_number='3PK1000', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='HONDA',
+            part_number='31110PH7013', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='MAZDA',
+            part_number='N39013813', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='MITSUBISHI',
+            part_number='MD361163', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1055', oe_brand='DAYCO',
+            part_number='3PK1055', group_id='3PK1055',
+        )
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('3PK10')
+        self.assertTrue(needs)
+        self.assertEqual(query, '3PK10')
+        norms = {sanitize_part_number(c['part_number']) for c in candidates}
+        self.assertEqual(norms, {'3PK1000', '3PK1055'})
+        pairs = {(c['oe_brand'], sanitize_part_number(c['part_number'])) for c in candidates}
+        self.assertEqual(pairs, {('BANDO', '3PK1000'), ('DAYCO', '3PK1055')})
+
+    def test_wildcard_did_you_mean_only_lists_matching_codes(self):
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='BANDO',
+            part_number='3PK1000', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='HONDA',
+            part_number='31110PH7013', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1000', oe_brand='MITSUBISHI',
+            part_number='4451A022', group_id='3PK1000',
+        )
+        PartCrossCode.objects.create(
+            brand='JIKIU', product_no='3PK1055', oe_brand='DAYCO',
+            part_number='3PK1055', group_id='3PK1055',
+        )
+        needs, candidates, query = PartSearchServiceCrossCode.needs_disambiguation('3PK10*')
+        self.assertTrue(needs)
+        self.assertEqual(query, '3PK10*')
+        norms = {sanitize_part_number(c['part_number']) for c in candidates}
+        self.assertEqual(norms, {'3PK1000', '3PK1055'})
+        self.assertNotIn('31110PH7013', norms)
+        self.assertNotIn('4451A022', norms)
 
     def test_exact_product_no_skips_did_you_mean_and_opens_family(self):
         PartCrossCode.objects.create(
@@ -261,6 +312,38 @@ class CrossCodeSearchRulesTests(TestCase):
         self.assertTrue(honda_family)
         self.assertTrue(all(item['part'].product_no == 'FAM1' for item in toyota_family))
         self.assertTrue(all(item['part'].product_no == 'FAM2' for item in honda_family))
+
+    def test_same_code_same_family_both_brands_open_family(self):
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='PN3469', oe_brand='CHRYSLER',
+            part_number='MR955727', group_id='PN3469',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='PN3469', oe_brand='MITSUBISHI',
+            part_number='MR955727', group_id='PN3469',
+        )
+        PartCrossCode.objects.create(
+            brand='NIBK', product_no='PN3469', oe_brand='BENDIX',
+            part_number='DB1441', group_id='PN3469',
+        )
+        chrysler_family = PartSearchServiceCrossCode.build_results(
+            'MR955727', oe_brand='CHRYSLER',
+        )
+        mitsu_family = PartSearchServiceCrossCode.build_results(
+            'MR955727', oe_brand='MITSUBISHI',
+        )
+        self.assertTrue(chrysler_family)
+        self.assertTrue(mitsu_family)
+        chrysler_codes = {
+            sanitize_part_number(item['part'].part_number) for item in chrysler_family
+        }
+        mitsu_codes = {
+            sanitize_part_number(item['part'].part_number) for item in mitsu_family
+        }
+        self.assertEqual(chrysler_codes, {'MR955727', 'DB1441'})
+        self.assertEqual(mitsu_codes, {'MR955727', 'DB1441'})
+        self.assertTrue(all(item['part'].product_no == 'PN3469' for item in chrysler_family))
+        self.assertTrue(all(item['part'].product_no == 'PN3469' for item in mitsu_family))
 
     def test_single_search_results_include_brand_and_code(self):
         results = PartSearchServiceCrossCode.build_results('D1086')

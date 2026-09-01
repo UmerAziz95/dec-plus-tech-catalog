@@ -378,6 +378,9 @@ class PartSearchServiceCrossCode(PartSearchService):
         """
         Brand + Code pairs matching a wildcard (*) or prefix query.
         Used for the Did you mean? step.
+
+        Prefix matches Code only. Wildcard matches Code, Brand, and OE Brand.
+        Product No is not used, so unrelated family OE codes are not listed.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
@@ -386,11 +389,11 @@ class PartSearchServiceCrossCode(PartSearchService):
         if '*' in query:
             like = crosscode_wildcard_to_like(query)
             where_sql, params = crosscode_wildcard_sql(
-                like, ('code', 'product_no', 'brand', 'oe_brand'),
+                like, ('code', 'brand', 'oe_brand'),
             )
         else:
             like = f'{query}%'
-            where_sql, params = crosscode_wildcard_sql(like, ('code', 'product_no'))
+            where_sql, params = crosscode_wildcard_sql(like, ('code',))
 
         rows = (
             cls.part_model.objects
@@ -551,7 +554,14 @@ class PartSearchServiceCrossCode(PartSearchService):
         if not query:
             return []
 
-        matching_parts = list(filter_parts_exact(query, model=cls.part_model))
+        # Do not use filter_parts_exact here: it DISTINCT ON (part_number, group_id),
+        # which drops extra Brands for the same Code in one product family.
+        matching_parts = list(
+            cls.part_model.objects.extra(
+                where=["part_number_norm = %s"],
+                params=[query],
+            )
+        )
         if oe_brand:
             brand_key = oe_brand.casefold()
             matching_parts = [
