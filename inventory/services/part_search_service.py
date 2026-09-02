@@ -438,30 +438,50 @@ class PartSearchServiceCrossCode(PartSearchService):
     @classmethod
     def needs_disambiguation(cls, raw_query):
         """
-        Exact Product No opens the family. An exact unique Code opens the
-        family even if several Brands share that Code. Prefix, wildcard, or
-        more than one distinct Code shows Did you mean first — including a
-        single longer Code (MR95572 vs MR955727).
+        Exact Product No opens the family. A complete unique Code with one
+        Brand opens the family. The same complete Code with several Brands
+        shows Did you mean (Brand + Code). Prefix, wildcard, or more than
+        one distinct Code still shows Did you mean by Code first.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
             return False, [], query
 
-        if '*' not in query and cls._product_no_exact_exists(query):
-            return False, [], query
+        if '*' in query:
+            candidates = cls.find_candidate_codes(query)
+            if not candidates:
+                return False, [], query
+            return True, candidates, query
 
         candidates = cls.find_candidate_codes(query)
-        if not candidates:
-            return False, [], query
-
         exact_unique_code = (
-            '*' not in query
-            and len(candidates) == 1
+            len(candidates) == 1
             and sanitize_part_number(candidates[0]['part_number']) == query
         )
         if exact_unique_code:
+            brand_rows = [
+                item for item in cls.find_exact_candidates([query])
+                if sanitize_part_number(item['part_number']) == query
+            ]
+            if len(brand_rows) > 1:
+                return True, cls._mark_pick_brand(brand_rows), query
             return False, [], candidates[0]['part_number']
+
+        if cls._product_no_exact_exists(query):
+            return False, [], query
+
+        if not candidates:
+            return False, [], query
         return True, candidates, query
+
+    @classmethod
+    def _mark_pick_brand(cls, candidates):
+        marked = []
+        for item in candidates:
+            row = dict(item)
+            row['pick_brand'] = True
+            marked.append(row)
+        return marked
 
     @classmethod
     def find_exact_candidates(cls, keys, limit=200):
@@ -513,33 +533,37 @@ class PartSearchServiceCrossCode(PartSearchService):
                 keys.append(key)
         return cls.find_exact_candidates(keys, limit=limit)
 
+    @staticmethod
+    def _product_family_key(part):
+        brand = (part.brand or '').strip()
+        product_no = (part.product_no or '').strip()
+        if not brand or not product_no:
+            return None
+        return (brand, product_no)
+
     @classmethod
     def expand_product_families(cls, parts):
         """
         Expand matched rows to the full Product Brand + Product No family.
 
-        Matches the Cross code example.xlsx Bulk search-result rule: searching
-        one Code or Product No pulls every Brand + Code in that product group.
+        Only expands when every matched row belongs to the same non-empty
+        Product Brand + Product No. If the same Code+Brand sits in more than
+        one product group (PN3469 vs PN3469S), those groups are not merged.
         """
         if not parts:
             return []
 
         by_id = {part.id: part for part in parts}
         families = {
-            (part.brand or '', part.product_no or '')
-            for part in parts
-            if (part.brand or part.product_no)
+            key for part in parts
+            if (key := cls._product_family_key(part))
         }
-        if not families:
-            return list(by_id.values())
-
-        from django.db.models import Q
-        family_q = Q()
-        for brand, product_no in families:
-            family_q |= Q(brand=brand, product_no=product_no)
-
-        for part in cls.part_model.objects.filter(family_q).iterator(chunk_size=500):
-            by_id[part.id] = part
+        if len(families) == 1:
+            brand, product_no = next(iter(families))
+            for part in cls.part_model.objects.filter(
+                brand=brand, product_no=product_no,
+            ).iterator(chunk_size=500):
+                by_id[part.id] = part
 
         return sorted(
             by_id.values(),

@@ -9,7 +9,7 @@
     <div class="search-tools-grid">
         <section class="search-tools-block" id="part-search-panel">
             <h2 class="panel-title">Search by part number</h2>
-            <p class="panel-subtitle">Search by Code, Product No, or Brand. Use * as a wildcard. Matching Codes show Did you mean?; a unique Code opens the family (all Brands for that Code).</p>
+            <p class="panel-subtitle">Search by Code, Product No, or Brand. Use * as a wildcard. Matching Codes show Did you mean?; a complete Code with several Brands asks which Brand; a unique Code opens the family.</p>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
                     <div class="search-bar search-autocomplete" data-suggestions-url="{{ part_search_suggestions_url }}">
@@ -85,6 +85,9 @@
                 <p class="empty-state-text did-you-mean-copy">
                     {% if did_you_mean_bulk %}
                     Select a Code + Brand from the uploaded file to continue searching.
+                    {% elif did_you_mean_pick_brand %}
+                    Select a Code + Brand to continue searching for
+                    "<strong>{{ search_query }}</strong>".
                     {% else %}
                     Select a Code to continue searching for
                     "<strong>{{ search_query }}</strong>".
@@ -96,18 +99,18 @@
                     <table class="data-table" id="did-you-mean-table">
                         <thead>
                             <tr>
-                                <th>Code</th>
                                 <th>Brand</th>
+                                <th>Code</th>
                                 <th style="width: 140px;"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for item in did_you_mean_candidates %}
                             <tr>
-                                <td><span class="part-number">{{ item.part_number }}</span></td>
                                 <td><span class="brand-name">{{ item.oe_brand|default:"—" }}</span></td>
+                                <td><span class="part-number">{{ item.part_number }}</span></td>
                                 <td>
-                                    {% if did_you_mean_bulk %}
+                                    {% if did_you_mean_bulk or item.pick_brand %}
                                     <a href="?q={{ item.part_number|urlencode }}&exact=1{% if item.oe_brand %}&oe_brand={{ item.oe_brand|urlencode }}{% endif %}#search-results-panel" class="btn btn-primary btn-sm">Search</a>
                                     {% else %}
                                     <a href="?q={{ item.part_number|urlencode }}&exact=1#search-results-panel" class="btn btn-primary btn-sm">Search</a>

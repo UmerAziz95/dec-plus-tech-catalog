@@ -47,14 +47,22 @@ def sanitize_crosscode_bulk_part(value):
 
 
 def crosscode_wildcard_to_like(pattern):
-    """Turn a sanitized Cross Code pattern with * into a SQL LIKE pattern."""
-    parts = str(pattern or '').split('*')
+    """Turn a sanitized Cross Code pattern with * into a SQL LIKE pattern.
+
+    * matches any characters, including in the middle of a code.
+    ``3PK*61`` matches ``3PK610`` — 61 does not have to be at the end.
+    """
+    raw = str(pattern or '')
+    parts = raw.split('*')
     escaped = []
     for part in parts:
         escaped.append(
             part.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
         )
-    return '%'.join(escaped)
+    like = '%'.join(escaped)
+    if '*' in raw and like and not like.endswith('%'):
+        like += '%'
+    return like
 
 
 def crosscode_wildcard_sql(like, fields, table=''):

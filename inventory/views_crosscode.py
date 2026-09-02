@@ -143,6 +143,9 @@ def search_part_crosscode_view(request):
         'did_you_mean': did_you_mean,
         'did_you_mean_candidates': did_you_mean_candidates,
         'did_you_mean_bulk': did_you_mean_bulk,
+        'did_you_mean_pick_brand': any(
+            item.get('pick_brand') for item in did_you_mean_candidates
+        ),
         'exact_search': force_exact,
         'oe_brand_filter': oe_brand_filter,
         'family_query_base': urlencode(
