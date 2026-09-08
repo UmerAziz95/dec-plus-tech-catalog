@@ -31,8 +31,11 @@ Thumbs.db
 *.xlsx
 *.csv
 
-# Local backups (exceed GitHub's 100 MB file limit)
+# Local database backups (do not push dumps or pg_dump files)
+*.dump
+*_backup_*
 parts_find_backup_09-01
+first_django_db_backup_09-01
 
 # Gemini AI
 .gemini/

@@ -9,7 +9,7 @@
     <div class="search-tools-grid">
         <section class="search-tools-block" id="part-search-panel">
             <h2 class="panel-title">Search by part number</h2>
-            <p class="panel-subtitle">Search by Code, Product No, or Brand. Use * as a wildcard. Matching Codes show Did you mean?; a complete Code with several Brands asks which Brand; a unique Code opens the family.</p>
+            <p class="panel-subtitle">Search by Code, Product No, or Brand. Use * as a wildcard. Matching Codes show Did you mean?; a complete Code with several Brands asks which Brand; results only include rows whose Code or Product No matches.</p>
             <div class="card search-card">
                 <form method="get" action="" id="search-form" class="search-form-row">
                     <div class="search-bar search-autocomplete" data-suggestions-url="{{ part_search_suggestions_url }}">
@@ -110,7 +110,9 @@
                                 <td><span class="brand-name">{{ item.oe_brand|default:"—" }}</span></td>
                                 <td><span class="part-number">{{ item.part_number }}</span></td>
                                 <td>
-                                    {% if did_you_mean_bulk or item.pick_brand %}
+                                    {% if item.pick_product_brand %}
+                                    <a href="?q={{ item.part_number|urlencode }}&exact=1&product_brand={{ item.brand|urlencode }}#search-results-panel" class="btn btn-primary btn-sm">Search</a>
+                                    {% elif did_you_mean_bulk or item.pick_brand %}
                                     <a href="?q={{ item.part_number|urlencode }}&exact=1{% if item.oe_brand %}&oe_brand={{ item.oe_brand|urlencode }}{% endif %}#search-results-panel" class="btn btn-primary btn-sm">Search</a>
                                     {% else %}
                                     <a href="?q={{ item.part_number|urlencode }}&exact=1#search-results-panel" class="btn btn-primary btn-sm">Search</a>
@@ -270,6 +272,9 @@
                     {% if oe_brand_filter %}
                     <input type="hidden" name="oe_brand" value="{{ oe_brand_filter }}">
                     {% endif %}
+                    {% if product_brand_filter %}
+                    <input type="hidden" name="product_brand" value="{{ product_brand_filter }}">
+                    {% endif %}
                     <div id="search-basket-feedback" class="feedback-stack" aria-live="polite"></div>
                     <div class="basket-assign-fields">
                         <div class="form-group">
@@ -285,7 +290,7 @@
                             <span>Add all results to basket</span>
                         </button>
                     </div>
-                    <p class="basket-assign-note">Adds every unique Brand + Code from the matched product family to your basket.</p>
+                    <p class="basket-assign-note">Adds every unique Brand + Code from these search results to your basket.</p>
                 </form>
             </div>
 

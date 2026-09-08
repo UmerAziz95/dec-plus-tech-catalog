@@ -55,7 +55,7 @@ def _did_you_mean_from_bulk_upload(request, rows_data):
     return candidates
 
 
-def _crosscode_family_params(raw_query, exact=False, oe_brand='', page=''):
+def _crosscode_family_params(raw_query, exact=False, oe_brand='', product_brand='', page=''):
     params = {}
     if raw_query:
         params['q'] = raw_query
@@ -63,6 +63,8 @@ def _crosscode_family_params(raw_query, exact=False, oe_brand='', page=''):
         params['exact'] = '1'
     if oe_brand:
         params['oe_brand'] = oe_brand
+    if product_brand:
+        params['product_brand'] = product_brand
     if page:
         params['page'] = page
     return params
@@ -74,6 +76,7 @@ def search_part_crosscode_view(request):
     raw_query = request.GET.get('q', '').strip()
     force_exact = request.GET.get('exact') == '1'
     oe_brand_filter = request.GET.get('oe_brand', '').strip()
+    product_brand_filter = request.GET.get('product_brand', '').strip()
     search_query = sanitize_crosscode_search(raw_query, keep_star=True)
     results = []
     total_cars = 0
@@ -109,11 +112,11 @@ def search_part_crosscode_view(request):
             did_you_mean_candidates = candidates
         else:
             results = PartSearchServiceCrossCode.build_results(
-                search_query, oe_brand=oe_brand_filter,
+                search_query, oe_brand=oe_brand_filter, product_brand=product_brand_filter,
             )
     elif search_query and force_exact:
         results = PartSearchServiceCrossCode.build_results(
-            raw_query, oe_brand=oe_brand_filter,
+            raw_query, oe_brand=oe_brand_filter, product_brand=product_brand_filter,
         )
 
     if results:
@@ -148,8 +151,11 @@ def search_part_crosscode_view(request):
         ),
         'exact_search': force_exact,
         'oe_brand_filter': oe_brand_filter,
+        'product_brand_filter': product_brand_filter,
         'family_query_base': urlencode(
-            _crosscode_family_params(raw_query, force_exact, oe_brand_filter)
+            _crosscode_family_params(
+                raw_query, force_exact, oe_brand_filter, product_brand_filter,
+            )
         ) if raw_query else '',
         'bulk_results': bulk_results,
         'bulk_has_searched': bulk_has_searched,
@@ -203,12 +209,15 @@ def bulk_search_missed_export_crosscode_view(request):
 def part_search_export_crosscode_view(request):
     raw_query = request.GET.get('q', '').strip()
     oe_brand_filter = request.GET.get('oe_brand', '').strip()
+    product_brand_filter = request.GET.get('product_brand', '').strip()
     search_query = sanitize_part_number(raw_query)
     if not search_query:
         messages.error(request, 'Run a part number search before exporting.')
         return redirect('inventory:search_part_crosscode')
 
-    results = PartSearchServiceCrossCode.build_results(raw_query, oe_brand=oe_brand_filter)
+    results = PartSearchServiceCrossCode.build_results(
+        raw_query, oe_brand=oe_brand_filter, product_brand=product_brand_filter,
+    )
     if not results:
         messages.error(request, 'No vehicles to export for this search.')
         return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode({'q': raw_query})}")
@@ -246,17 +255,21 @@ def add_search_results_to_basket_crosscode(request):
     brand = request.POST.get('brand', '').strip()
     brand_number = request.POST.get('brand_number', '').strip()
     oe_brand_filter = request.POST.get('oe_brand', '').strip()
+    product_brand_filter = request.POST.get('product_brand', '').strip()
     page = request.POST.get('page', '').strip()
 
     if not search_query or not brand or not brand_number:
         messages.error(request, 'Search query, brand name, and brand number are required.')
         return redirect('inventory:search_part_crosscode')
 
-    results = PartSearchServiceCrossCode.build_results(raw_query, oe_brand=oe_brand_filter)
+    results = PartSearchServiceCrossCode.build_results(
+        raw_query, oe_brand=oe_brand_filter, product_brand=product_brand_filter,
+    )
     family_params = _crosscode_family_params(
         raw_query,
         exact=request.POST.get('exact') == '1',
         oe_brand=oe_brand_filter,
+        product_brand=product_brand_filter,
         page=page if page.isdigit() else '',
     )
     if not results:
@@ -281,6 +294,7 @@ def add_search_results_to_basket_crosscode(request):
         raw_query,
         exact=request.POST.get('exact') == '1',
         oe_brand=oe_brand_filter,
+        product_brand=product_brand_filter,
         page=page if page.isdigit() else '',
     )
     return redirect(f"{reverse('inventory:search_part_crosscode')}?{urlencode(params)}")

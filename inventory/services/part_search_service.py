@@ -374,14 +374,15 @@ class PartSearchServiceCrossCode(PartSearchService):
         ).exists()
 
     @classmethod
-    def find_candidate_codes(cls, raw_query, limit=40):
+    def find_candidate_codes(cls, raw_query, limit=40, unique_by='code'):
         """
-        Distinct Codes matching a wildcard (*) or prefix query.
+        Codes matching a wildcard (*) or prefix query.
         Used for the Did you mean? step.
 
         Prefix matches Code only. Wildcard matches Code, Brand, and OE Brand.
         Product No is not used, so unrelated family OE codes are not listed.
-        The same Code under multiple Brands is listed once.
+        unique_by='code' keeps one row per Code; unique_by='code_brand'
+        keeps every Brand + Code pair.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
@@ -396,18 +397,19 @@ class PartSearchServiceCrossCode(PartSearchService):
             like = f'{query}%'
             where_sql, params = crosscode_wildcard_sql(like, ('code',))
 
+        fetch_limit = max(limit * 16, 320) if unique_by == 'code_brand' else max(limit * 8, 160)
         rows = (
             cls.part_model.objects
             .extra(where=[where_sql], params=params)
             .order_by('oe_brand', 'part_number')
             .values('part_number', 'oe_brand', 'brand', 'product_no')
-            [: max(limit * 8, 160)]
+            [:fetch_limit]
         )
 
         candidates = []
         seen = set()
         for row in rows:
-            item_key, item = cls._candidate_row(row, unique_by='code')
+            item_key, item = cls._candidate_row(row, unique_by=unique_by)
             if not item_key or item_key in seen:
                 continue
             seen.add(item_key)
@@ -438,17 +440,19 @@ class PartSearchServiceCrossCode(PartSearchService):
     @classmethod
     def needs_disambiguation(cls, raw_query):
         """
-        Exact Product No opens the family. A complete unique Code with one
-        Brand opens the family. The same complete Code with several Brands
-        shows Did you mean (Brand + Code). Prefix, wildcard, or more than
-        one distinct Code still shows Did you mean by Code first.
+        Exact Product No opens matching Product No rows. A complete unique Code with one
+        OE Brand and one Product Brand opens matching Code / Product No rows. The same complete
+        Code with several OE Brands or several Product Brands shows Did you
+        mean (Brand + Code), including every Product Brand that differs.
+        A partial Code lists every matching Brand + Code pair, plus every
+        Product Brand when it differs.
         """
         query = sanitize_crosscode_search(raw_query, keep_star=True)
         if not query:
             return False, [], query
 
         if '*' in query:
-            candidates = cls.find_candidate_codes(query)
+            candidates = cls._partial_brand_code_candidates(query)
             if not candidates:
                 return False, [], query
             return True, candidates, query
@@ -463,8 +467,19 @@ class PartSearchServiceCrossCode(PartSearchService):
                 item for item in cls.find_exact_candidates([query])
                 if sanitize_part_number(item['part_number']) == query
             ]
-            if len(brand_rows) > 1:
-                return True, cls._mark_pick_brand(brand_rows), query
+            product_rows = cls._product_brand_values_for_codes([query])
+            did_you_mean_rows = cls._mark_pick_brand(
+                cls._append_distinct_product_brands(
+                    brand_rows, product_rows=product_rows,
+                ),
+            )
+            product_brands = {
+                (row.get('brand') or '').strip().casefold()
+                for row in product_rows
+                if (row.get('brand') or '').strip()
+            }
+            if len(brand_rows) > 1 or len(product_brands) > 1:
+                return True, did_you_mean_rows, query
             return False, [], candidates[0]['part_number']
 
         if cls._product_no_exact_exists(query):
@@ -472,7 +487,78 @@ class PartSearchServiceCrossCode(PartSearchService):
 
         if not candidates:
             return False, [], query
-        return True, candidates, query
+        return True, cls._partial_brand_code_candidates(query), query
+
+    @classmethod
+    def _partial_brand_code_candidates(cls, query):
+        rows = cls.find_candidate_codes(query, unique_by='code_brand', limit=80)
+        return cls._mark_pick_brand(cls._append_distinct_product_brands(rows))
+
+    @classmethod
+    def _product_brand_values_for_codes(cls, code_keys):
+        """All Code rows needed to list distinct Product Brands per Code."""
+        keys = []
+        seen = set()
+        for raw in code_keys or []:
+            key = sanitize_part_number(raw)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+        if not keys:
+            return []
+        placeholders = ', '.join(['%s'] * len(keys))
+        return list(
+            cls.part_model.objects.extra(
+                where=[f'part_number_norm IN ({placeholders})'],
+                params=keys,
+            ).order_by('part_number', 'brand', 'product_no')
+            .values('part_number', 'brand', 'product_no')
+        )
+
+    @classmethod
+    def _append_distinct_product_brands(cls, brand_rows, product_rows=None):
+        """
+        If Product Brand differs from Brand (oe_brand), add a Did you mean
+        row for that Product Brand with the same Code.
+
+        Uses every Product Brand stored for each Code, not only the first
+        row kept after OE Brand dedupe.
+        """
+        extra = []
+        seen = {
+            (
+                sanitize_part_number(item.get('part_number')),
+                (item.get('oe_brand') or '').strip().casefold(),
+            )
+            for item in brand_rows
+        }
+        display_by_code = {}
+        code_keys = []
+        for item in brand_rows:
+            code_key = sanitize_part_number(item.get('part_number'))
+            if not code_key or code_key in display_by_code:
+                continue
+            display_by_code[code_key] = item.get('part_number') or ''
+            code_keys.append(code_key)
+        if product_rows is None:
+            product_rows = cls._product_brand_values_for_codes(code_keys)
+        added = set()
+        for row in product_rows:
+            product_brand = (row.get('brand') or '').strip()
+            code_key = sanitize_part_number(row.get('part_number'))
+            key = (code_key, product_brand.casefold())
+            if not product_brand or not code_key or key in seen or key in added:
+                continue
+            added.add(key)
+            extra.append({
+                'part_number': display_by_code.get(code_key) or row.get('part_number') or '',
+                'oe_brand': product_brand,
+                'brand': product_brand,
+                'product_no': (row.get('product_no') or '').strip(),
+                'pick_product_brand': True,
+            })
+        return list(brand_rows) + extra
 
     @classmethod
     def _mark_pick_brand(cls, candidates):
@@ -576,46 +662,63 @@ class PartSearchServiceCrossCode(PartSearchService):
         )
 
     @classmethod
-    def build_results(cls, query, oe_brand=None):
-        """Exact Code / Product No match, expanded to full product families."""
+    def build_results(cls, query, oe_brand=None, product_brand=None):
+        """
+        Exact Code or Product No matches. A selected Did you mean brand
+        matches Product Brand or Brand (oe_brand).
+        """
         query = sanitize_crosscode_search(query, keep_star=False)
         oe_brand = (oe_brand or '').strip()
+        product_brand = (product_brand or '').strip()
         if not query:
             return []
 
         # Do not use filter_parts_exact here: it DISTINCT ON (part_number, group_id),
-        # which drops extra Brands for the same Code in one product family.
+        # which drops extra Brands for the same Code.
         matching_parts = list(
             cls.part_model.objects.extra(
                 where=["part_number_norm = %s"],
                 params=[query],
             )
         )
-        if oe_brand:
-            brand_key = oe_brand.casefold()
-            matching_parts = [
-                part for part in matching_parts
-                if (part.oe_brand or '').strip().casefold() == brand_key
-            ]
-            product_matches = []
-        else:
-            product_matches = list(
-                cls.part_model.objects.extra(
-                    where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
-                    params=[PART_NUMBER_SANITIZE_REGEX, query],
-                )[:5000]
-            )
+        product_matches = list(
+            cls.part_model.objects.extra(
+                where=["regexp_replace(upper(coalesce(product_no, '')), %s, '', 'g') = %s"],
+                params=[PART_NUMBER_SANITIZE_REGEX, query],
+            )[:5000]
+        )
 
         by_id = {}
         for part in matching_parts + product_matches:
             by_id[part.id] = part
 
-        expanded = cls.expand_product_families(list(by_id.values()))
+        matched = list(by_id.values())
+        brand_keys = {
+            key.casefold()
+            for key in (oe_brand, product_brand)
+            if key
+        }
+        if brand_keys:
+            matched = [
+                part for part in matched
+                if (part.oe_brand or '').strip().casefold() in brand_keys
+                or (part.brand or '').strip().casefold() in brand_keys
+            ]
+
+        matched = sorted(
+            matched,
+            key=lambda part: (
+                part.brand or '',
+                part.product_no or '',
+                part.oe_brand or '',
+                part.part_number or '',
+            ),
+        )
         return [{
             'part': part,
             'parts': [part],
             'source': cls.source_label,
-        } for part in expanded]
+        } for part in matched]
 
     @classmethod
     def matching_parts_exist(cls, query):
@@ -669,7 +772,6 @@ class PartSearchServiceCrossCode(PartSearchService):
             else:
                 parts.extend(item.get('parts') or [])
 
-        parts = cls.expand_product_families(parts)
         if not parts:
             return 0
 
